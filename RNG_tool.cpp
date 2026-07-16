@@ -220,14 +220,14 @@ tuple<uint32_t, uint32_t> valueToMantissa(tuple<float, float> vals) {
     tie(minVal, maxVal) = vals;
     if ((minVal == 1 && maxVal == 2) || (maxVal <= minVal) || (maxVal == 0)) {minMantissa = 1; maxMantissa = 1;} 
     else {
-        bits = bit_cast<uint32_t>(minVal);
+        memcpy(&bits, &minVal, sizeof(bits));
         minMantissa = bits & 0x7fff00;
 
         if(maxVal >= 1.999969482421875) {
             maxMantissa = 0x7fff00;
         } 
         else {
-            bits = bit_cast<uint32_t>(maxVal);
+            memcpy(&bits, &maxVal, sizeof(bits));
             maxMantissa = bits & 0x7fff00;
         }
     }
@@ -735,7 +735,6 @@ int main() {
     int stepSize = 148;
     int MstepSize = 8;
     int offset = 2;
-
 
     states = stateFinder();
     if (states.size()) {stateProgressHandler(states[0], 164, 8);}
