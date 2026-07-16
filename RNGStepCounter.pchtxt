@@ -1,0 +1,74 @@
+@nsobid-3B39E0C06B8841F1BAF0EA4D54286BFE
+@flag offset_shift 0x100
+
+@enabled
+00f763fc 14008052 // mov w20, #0x0
+00f7649c 14008072 // movk w20, #0x0
+0025bdec 2b008052 // cEnemy action related (Hoppers, Valkyries, Bwaario, Lava Queen)
+0025bdf0 33010b0b
+002788e8 2b008052 // cCrit + Hit on Boomshot for extra AOE targets
+002788ec 29010b0b
+00278970 2b008052 // cCrit + Hit
+00278974 29010b0b
+0030e418 2b008052 // cRandom Hidden Explosive Cover
+0030e41c 4a010b0b
+0030e544 2a008052
+0030e548 29010a0b
+00411b48 2b008052 // cLoad tips
+00411b4c 2b010b0b
+00419fe0 2b008052 // cDamage roll (mov w11, #1; add w10, w10, w11)
+00419ff0 4a010b0b
+00451228 2a008052 // c(explosive/) cover damage effect?
+0045122c 08010a0b
+00451794 2b008052 // cRandom explosive cover effect
+004517a4 4a010b0b
+004c1678 2b008052 // c
+004c167c 4a010b0b
+005062c8 34008052 // c
+00506304 2901140b 
+00554ca4 2b008052 // c
+00554ca8 4a010b0b
+005cf258 2b008052 // cBlock Rubble/Coin direction on spawn
+005cf25c 29010b0b
+005cf238 38008052
+005cf2ec 2901180b
+005cf2f4 2901180b
+00621b5c 2b008052 // cBounce tie breaker
+00621b60 4a010b0b
+00621b90 29010b0b
+006244b0 4a010b0b // cBurn 1
+006244b4 29010b0b
+00624a7c 33008052 // cBurn 2
+00624aa0 2901130b
+0062592c 2a008052 // cBurn 3
+00625930 29010a0b
+006260b4 2b008052 // cBurn 4
+006260b8 08010b0b
+006ddc30 2b008052 // cVersus Coin
+006ddc34 29010b0b
+00743bb4 2b008052 // cPyroclasts 1
+00743bb8 29010b0b
+007443a4 2c008052 // cPyroclasts 2
+007443a8 8b010b0b
+0074497c 2b008052 // c
+00744980 29010b0b
+0074577c 39008052 // cPyroclasts 3
+0074579c 2901190b
+00745930 2901190b
+00745e64 2f008052 // cPyroclasts?/Honey Bombs?/Ink Coconuts?
+00745e68 ce010f0b 
+007466b4 39008052 // cPyroclasts 4
+007466e8 2901190b
+00746808 39008052 // c
+0074683c 2901190b
+00756054 3a008052 // cBoo teleport preset
+00756088 4a011a0b
+0075696c 2b008052 // cBoo char teleport
+00756970 29010b0b
+0078fe8c 2b008052 // cTornado
+0078fe90 4a010b0b
+007916c0 2b008052 // cRabbid Kong wave block hits
+007916c4 29010b0b
+007927c0 2b008052 // cLoad some battle areas + end turn related (3-2, 3-6, UC2)
+007927c4 29010b0b
+@stop
