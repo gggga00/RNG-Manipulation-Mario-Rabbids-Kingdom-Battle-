@@ -6,8 +6,10 @@
 #include <string>
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <stdexcept>
+#include <bit>
 
 using namespace std;
 
@@ -218,14 +220,14 @@ tuple<uint32_t, uint32_t> valueToMantissa(tuple<float, float> vals) {
     tie(minVal, maxVal) = vals;
     if ((minVal == 1 && maxVal == 2) || (maxVal <= minVal) || (maxVal == 0)) {minMantissa = 1; maxMantissa = 1;} 
     else {
-        bits = _Bit_cast<uint32_t, float>(minVal);
+        bits = bit_cast<uint32_t>(minVal);
         minMantissa = bits & 0x7fff00;
 
         if(maxVal >= 1.999969482421875) {
             maxMantissa = 0x7fff00;
         } 
         else {
-            bits = _Bit_cast<uint32_t, float>(maxVal);
+            bits = bit_cast<uint32_t>(maxVal);
             maxMantissa = bits & 0x7fff00;
         }
     }
