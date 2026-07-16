@@ -69,8 +69,8 @@ Your own team (but not the respective character) count as an entity as well in t
   
   
 # Step by step process:  
-1. Start the programm
-A binary is included that you can run in the terminal in case you don't have a cpp compiler)
+1. Start the programm  
+Binaries are included that you can run in the terminal in case you don't have a cpp compiler. They can be found in the assets of the respective release.
 2. Enter the Step Size
 This refers to how many RNG steps you do in one cycle. You can manually count or use the patch file, which will count for you and display the amount of steps taken (since start of the game) as the min damage preview on reaction shots.
 3. Enter the hit chance for the target you are shooting
