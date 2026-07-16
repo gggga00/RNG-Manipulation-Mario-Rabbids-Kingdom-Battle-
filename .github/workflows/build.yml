@@ -1,25 +1,42 @@
-name: Build
+name: Build and Release
 
 on:
   push:
-  pull_request:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            exe: RNG_tool.exe
+          - os: ubuntu-latest
+            exe: RNG_tool
+          - os: macos-latest
+            exe: RNG_tool
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: g++ -std=c++20 -O2 RNG_tool.cpp -o RNG_tool
-
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: cmd
-        run: g++ -std=c++20 -O2 RNG_tool.cpp -o RNG_tool.exe
+        run: |
+          g++ -std=c++20 -O2 RNG_tool.cpp -o RNG_tool.exe
+
+      - name: Build (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          g++ -std=c++20 -O2 RNG_tool.cpp -o RNG_tool
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.exe }}
