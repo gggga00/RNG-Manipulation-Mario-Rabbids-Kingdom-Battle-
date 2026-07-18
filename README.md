@@ -27,13 +27,14 @@ The RNG state is progressed by 30 different functions, some of which progress it
 - Tornado
 - Rabbid Kong wave block hits
 - Load areas/End turn related?? (Is called in 3-2, 3-6, UC2)
-- DKA DLC Final Boss Phase 2 RK  
+- DKA DLC Final Boss Phase 2 RK
+  
 and 2 more whose purpose is to be determined. 
   
   
 Notably not included are:
-- Animations (e.g. rabbid peach move, luigi sentry, ...)
-- Color of garden ziggies
+- Animations (e.g. Rabbid Peach move, Luigi sentry, ...)
+- Color of Garden Ziggies
 - Versus item box
 - Action cam
 - Coin spawn amount (on block hit)
@@ -44,12 +45,12 @@ Notably not included are:
 It can:  
 - Find out the rng state
 - Manipulate the rng state to whatever we want
-- Control behavior of anything rng related (see list of 30 functions) PROVIDED we now at least one rng state/value that has our desired outcome
-- Control behavior of hit, crit and damage without that extra condition
-(Here are some more that are included in the code, but not fully implemented for use: Random explosive cover, Coin direction, RK Wave block hits)  
+- Control behavior of anything RNG related (see list of 30 functions) PROVIDED we now at least one rng state/value that has our desired outcome
+- We can also control behavior of some stuff without that extra condition: Hit/Crit, Damage Rolls, Coin Direction, RK Wave block hits, Random Explosive Cover
+
   
 It can not currently:  
-- Control behavior of most other rng related things without that extra condition
+- Control behavior of most other RNG related things without that extra condition
   
   
   
@@ -68,9 +69,9 @@ Your own team (but not the respective character) count as an entity as well in t
   
   
   
-# Step by step process:  
+# Step by step process for manipulating damage:  
 1. Start the programm  
-Binaries are included that you can run in the terminal in case you don't have a cpp compiler. They can be found in the assets of the respective release.
+Binaries are included that you can run in the terminal in case you don't have a cpp compiler. They can be found in the assets of the respective release, but I recommend working with the actual c++ code instead, as it is updated more frequently.
 2. Enter the Step Size
 This refers to how many RNG steps you do in one cycle. You can manually count or use the patch file, which will count for you and display the amount of steps taken (since start of the game) as the min damage preview on reaction shots.
 3. Enter the hit chance for the target you are shooting
