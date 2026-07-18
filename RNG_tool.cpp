@@ -9,7 +9,6 @@
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
-#include <bit>
 
 using namespace std;
 
@@ -107,16 +106,21 @@ struct Weapon
 
 void SaveVector(const string& filename, const vector<uint32_t>& data)
 {
+    vector<uint32_t> states = {};
+    for(uint32_t a : data) {
+        states.push_back((a < 2147483648) ? a : a-2147483648);
+    }
+    sort(states.begin(), states.end());
     ofstream file(filename, ios::binary);
     if (!file)
         throw runtime_error("Failed to open file for writing.");
 
-    uint64_t size = data.size();
+    uint64_t size = states.size();
     file.write(reinterpret_cast<const char*>(&size), sizeof(size));
 
     if (size > 0)
     {
-        file.write(reinterpret_cast<const char*>(data.data()),
+        file.write(reinterpret_cast<const char*>(states.data()),
                    size * sizeof(uint32_t));
     }
 
@@ -369,7 +373,7 @@ string valueToCoverEffect(float value) {
 }
 
 
-uint32_t printState(uint32_t state, int iteration, int stepSize = 1, bool row = true, bool value = false, int minDmg = -1, int maxDmg = -1, int baseDmg = -1) {
+uint32_t printState(uint32_t state, int iteration, int stepSize = 1, bool row = true, bool value = true, int minDmg = -1, int maxDmg = -1, int baseDmg = -1) {
     uint32_t temp = state;
     float val;
     if (iteration < 0) {stepSize = -stepSize;}
@@ -387,6 +391,23 @@ uint32_t printState(uint32_t state, int iteration, int stepSize = 1, bool row = 
     }
 
     return temp;
+}
+
+
+void searchNextGoal(uint32_t state, vector<uint32_t> sortedNormedGoalStates, int Mstepsize = 1, int lookAhead = 2147483647) {
+    uint32_t temp = (state < 2147483647) ? state : state-2147483648;
+    vector<uint32_t, allocator<uint32_t>>::iterator start = sortedNormedGoalStates.begin();
+    vector<uint32_t, allocator<uint32_t>>::iterator end = sortedNormedGoalStates.end();
+    int lcgAdd, lcgMult;
+    tie(lcgAdd, lcgMult) = getLcgConsts(Mstepsize);
+    
+    int j = 0;
+    while(!binary_search(start, end, temp)) {
+        j++;
+        temp = temp*lcgMult + lcgAdd;
+        temp = (temp < 2147483648) ? temp : temp-2147483648; 
+    }
+    cout << endl << int(j) << ": " << temp << endl;
 }
 
 
@@ -673,7 +694,7 @@ vector<uint32_t> stateFinder(int stepSize = 1) {
         }
         if (t == 'p') {
             temp = states.size();
-            cout << "States for next shot: " << endl;
+            cout << "States in " << stepSize << " steps: " << endl;
             for (uint32_t state : states) {
                 tie(lcgAdd, lcgMult) = getLcgConsts(stepSize);
                 cout << int(state*lcgMult + lcgAdd) << endl;
@@ -695,7 +716,7 @@ vector<uint32_t> stateFinder(int stepSize = 1) {
             cout << endl;
             continue;
         }
-        
+
         temp = stoi(strIn);
         if (temp == weapon.critDmg) {
             hitCrit = hitCritToValue(2, weapon.critChance, weapon.hitChance);
@@ -716,7 +737,7 @@ vector<uint32_t> stateFinder(int stepSize = 1) {
         temp = states.size();
 
         if (temp <= 10) {
-            cout << "States for next shot: " << endl;
+            cout << "States in " << stepSize << " steps: " << endl;
             for (uint32_t state : states) {
                 tie(lcgAdd, lcgMult) = getLcgConsts(stepSize);
                 cout << int(state*lcgMult + lcgAdd) << endl;
@@ -729,16 +750,26 @@ vector<uint32_t> stateFinder(int stepSize = 1) {
 
 
 int main() {
-    uint32_t state, temp;
-    vector<uint32_t> states = {0}, tempStates;
+    uint32_t state = -1716394832, temp;
+    vector<uint32_t> states = {}, tempStates = {};
 
     int stepSize = 148;
     int MstepSize = 8;
     int offset = 2;
 
-    states = stateFinder();
-    if (states.size()) {stateProgressHandler(states[0], 164, 8);}
-    else {stateProgressHandler();}
+    // 60k/10k/80k/170k/20k/120k         431088816
+    // 113 (63)   133 (83)  
+
+    // Start of battle: +50
+    // To 1st shot: +36 [hit: -6 (80)]          12499
+    // To 2nd shot: +65 [hit: -4 (147)] 
+    // After 2nd shot: +24 / +50
+
+    states = LoadVector("test");
+    //states = stateFinder();
+    searchNextGoal(state, states, 1);
+    //if (states.size()) {stateProgressHandler(states[0], 164, 8);}
+    //else {stateProgressHandler();}
 
 
     /** 
