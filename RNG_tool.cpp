@@ -49,8 +49,8 @@ struct Weapon
                     cout << "Crit Chance (in %): "; break;
             }
             getline(cin >> ws, input);
-            transform(input.begin(), input.end(), input.begin(), ::tolower);
             letter = input[0];
+            letter = tolower(letter);
 
             if (letter == 'x') {
                 if (index <= 1) {minSkipped = true;}
@@ -59,7 +59,6 @@ struct Weapon
                 return false;}
             if (letter  == 'b') {if (index > 0) {index--;} continue;}
             if (letter == 'n') {
-                cout << minSkipped << index << endl;
                 if (index == 1) {minSkipped = true;}
                 if ((index == 2) && !minSkipped) {maxDmg = minDmg + 10;}
                 if ((index == 3) && !minSkipped) {baseDmg = (minDmg + maxDmg)/2;}
@@ -110,7 +109,7 @@ void SaveVector(const string& filename, const vector<uint32_t>& data)
     for(uint32_t a : data) {
         states.push_back((a < 2147483648) ? a : a-2147483648);
     }
-    sort(states.begin(), states.end());
+     sort(states.begin(), states.end());
     ofstream file(filename, ios::binary);
     if (!file)
         throw runtime_error("Failed to open file for writing.");
@@ -407,7 +406,7 @@ void searchNextGoal(uint32_t state, vector<uint32_t> sortedNormedGoalStates, int
         temp = temp*lcgMult + lcgAdd;
         temp = (temp < 2147483648) ? temp : temp-2147483648; 
     }
-    cout << endl << int(j) << ": " << temp << endl;
+    cout << endl << j << " (" << j*Mstepsize << "): " << temp << endl;
 }
 
 
@@ -430,30 +429,34 @@ void getNextDmg(uint32_t state, int Mstepsize, int minDmg, int critDmg, int crit
     }
 }
 
-uint32_t stateProgressHandler(uint32_t State = 0, int StepSize = 0, int MStepSize = 2, bool value = false) {
+uint32_t rngManipHelper(uint32_t State = 0, int StepSize = 0, int MStepSize = 2, bool value = false) {
     uint32_t state = lcgWrapper(State, StepSize);
-    uint32_t prevState = state;
+    uint32_t prevState1 = state, prevState2 = state, prevState3 = state;
+    vector<uint32_t> goalStates;
     int stepSize = StepSize;
     int MstepSize = MStepSize;
     Weapon weapon;
+    int mode = 0;
 
     string strIn = " ";
     char t;
     int m1, m2, m3, j = 0;
 
+
+    cout << endl << "MANIP HELPER" << endl;
     cout << "Set state: ";
     cin >> strIn;
     transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
     t = strIn[0];
-    if (t != 'n' && t != 'x') {
-        state = stoi(strIn);
-    }
-    prevState = state;
+    if (t != 'x' && t != 'n') {state = stoi(strIn);}
+    prevState1 = state;
+    prevState2 = state;
+    prevState3 = state;
 
     cout << "Step size: ";
     cin >> strIn;
-    transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
     t = strIn[0];
+    t = tolower(t);
     if (t != 'x') {
         if (t != 'n') {stepSize = stoi(strIn);}
         cout << "MStep size: ";
@@ -462,10 +465,32 @@ uint32_t stateProgressHandler(uint32_t State = 0, int StepSize = 0, int MStepSiz
         t = strIn[0];
         if (t != 'n' && t != 'x') {MstepSize = stoi(strIn);}
     }
+
+    cout << "Set search mode (0 = Search for damage; 1 = Search for goal States): ";
+    cin >> strIn;
+    transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
+    t = strIn[0];
+    if (t != 'x') {
+        if (t != 'n') {
+            mode = stoi(strIn);
+        }
+        if(mode == 1) {
+            cout << "Set goal states (file name): ";
+            cin >> strIn;
+            t = strIn[0];
+            t = tolower(t);
+            if (t != 'n' && t != 'x') {goalStates = LoadVector(strIn);}
+        }
+    }
     weapon.setStats();
     cout << endl;
 
-    getNextDmg(state, MstepSize, weapon.minDmg, weapon.critDmg, -1, -1, 100, weapon.critChance, weapon.hitChance, weapon.maxDmg, weapon.baseDmg);
+
+    if (mode == 0) {
+        getNextDmg(state, MstepSize, weapon.minDmg, weapon.critDmg, -1, -1, 100, weapon.critChance, weapon.hitChance, weapon.maxDmg, weapon.baseDmg);
+    } else {
+        searchNextGoal(state, goalStates, MstepSize);
+    }
 
     while (true)
     {
@@ -484,7 +509,7 @@ uint32_t stateProgressHandler(uint32_t State = 0, int StepSize = 0, int MStepSiz
             continue;
         }
         if (t == 'x') {break;}
-        if (t == 'b') {state = prevState; continue;}
+        if (t == 'b') {state = prevState1; prevState1 = prevState2; prevState2 = prevState3; continue;}
         if (t == 'p') {
             cout << "State: " << state;     
             if(value) {cout << " (" << stateToValue(state) << ")";}
@@ -496,20 +521,34 @@ uint32_t stateProgressHandler(uint32_t State = 0, int StepSize = 0, int MStepSiz
             cin >> strIn;
             transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
             t = strIn[0];
-            if (t != 'n' && t != 'x') {
-                state = stoi(strIn);
-            }
+            if (t != 'x' && t != 'n') {state = stoi(strIn);}
             cout << "Step size: ";
             cin >> strIn;
-            transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
             t = strIn[0];
+            t = tolower(t);
             if (t != 'x') {
                 if (t != 'n') {stepSize = stoi(strIn);}
                 cout << "MStep size: ";
                 cin >> strIn;
-                transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
                 t = strIn[0];
+                t = tolower(t);
                 if (t != 'n' && t != 'x') {MstepSize = stoi(strIn);}
+            }
+            cout << "Set search mode (0 = Search for damage; 1 = Search for goal states): ";
+            cin >> strIn;
+            transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
+            t = strIn[0];
+            if (t != 'x') {
+                if (t != 'n') {
+                    mode = stoi(strIn);
+                }
+                if(mode == 1) {
+                    cout << "Set goal states (file name): ";
+                    cin >> strIn;
+                    t = strIn[0];
+                    t = tolower(t);
+                    if (t != 'n' && t != 'x') {goalStates = LoadVector(strIn);}
+                }
             }
             weapon.setStats();
             cout << endl;
@@ -517,26 +556,42 @@ uint32_t stateProgressHandler(uint32_t State = 0, int StepSize = 0, int MStepSiz
         }
 
         j = stepSize + stoi(strIn) * MstepSize;
-        prevState = state;
+        
+        prevState3 = prevState2;
+        prevState2 = prevState1;
+        prevState1 = state;
         state = lcgWrapper(state, j);
         cout << "RNG-Steps taken: " << j << endl;
-        getNextDmg(state, MstepSize, weapon.minDmg, weapon.critDmg, -1, -1, 100, weapon.critChance, weapon.hitChance, weapon.maxDmg, weapon.baseDmg);
+        if (mode == 0) {
+            getNextDmg(state, MstepSize, weapon.minDmg, weapon.critDmg, -1, -1, 100, weapon.critChance, weapon.hitChance, weapon.maxDmg, weapon.baseDmg);
+        } else {
+            searchNextGoal(state, goalStates, MstepSize);
+        }
     }
     return state;
 }
 
 
-vector<uint32_t> possibleStates(vector<uint32_t>& states, int stepSize = 1, tuple<float, float> vals = make_tuple(0, 0), tuple<float, float> exVals = make_tuple(0, 0)) {
+vector<uint32_t> searchStates(vector<uint32_t>& states, int minStepSize = 1, int maxStepSize = 0, tuple<float, float> vals = make_tuple(0, 0), tuple<float, float> exVals = make_tuple(0, 0), bool routeMode = false) {
     vector<uint32_t> out;
-    uint32_t lcgAdd, lcgMult, exLcgAdd, exLcgMult, minMant, maxMant, exMinMant, exMaxMant, nextState, m;
+    uint32_t lcgAdd, lcgMult, minMant, maxMant, exMinMant, exMaxMant, nextState, m;
+    if(abs(maxStepSize) < abs(minStepSize)) {maxStepSize = minStepSize;}
     tie(minMant, maxMant) = valueToMantissa(vals);
     tie(exMinMant, exMaxMant) = valueToMantissa(exVals);
+    tie(lcgAdd, lcgMult) = getLcgConsts(minStepSize);
+
+    if(routeMode) {
+        minMant += 0x100;
+        maxMant -= 0x100*(maxMant != 1);
+        exMinMant += 0x100;
+        exMaxMant -= 0x100*(exMaxMant != 1);
+    }
+
 
     if(states.size() == 0) {
         uint32_t state, maxState, prevMantissa;
         if (maxMant == 1) {
             if (exMaxMant == 1) {return states;}
-
             
             exMinMant = exMinMant >> 8;
             exMaxMant = exMaxMant >> 8;
@@ -582,25 +637,28 @@ vector<uint32_t> possibleStates(vector<uint32_t>& states, int stepSize = 1, tupl
         return out;
     }
 
-
     out.reserve(states.size());
     if (maxMant == 1) {
         if (exMaxMant == 1) {
-            tie(lcgAdd, lcgMult) = getLcgConsts(stepSize);
             for (uint32_t state : states) {
                 nextState = state * lcgMult + lcgAdd;
-                out.push_back(nextState);
+                for(int i = minStepSize; i <= maxStepSize; i++) {
+                    out.push_back(nextState);
+                    nextState = nextState * 214013 + 2531011;
+                }
             }
             return out;
         }
         
 
         for (uint32_t state : states) {
-            tie(exLcgAdd, exLcgMult) = getLcgConsts(stepSize - 1);
-            nextState = state * exLcgMult + exLcgAdd;
-            m = (nextState >> 8) & 0x7fff00;
-            if (exMinMant <= m && m <= exMaxMant) {
-                out.push_back(nextState * 214013u + 2531011u);
+            nextState = state * lcgMult + lcgAdd;
+            for(int i = minStepSize; i <= maxStepSize; i++) {
+                m = (((nextState - 2531011) * 3115528533) >> 8) & 0x7fff00;
+                if (exMinMant <= m && m <= exMaxMant) {
+                    out.push_back(nextState);
+                }
+                nextState = nextState * 214013 + 2531011;
             }
         }
         return out;
@@ -608,47 +666,63 @@ vector<uint32_t> possibleStates(vector<uint32_t>& states, int stepSize = 1, tupl
 
 
     if (exMaxMant == 1) {
-        tie(lcgAdd, lcgMult) = getLcgConsts(stepSize);
         for (uint32_t state : states) {
             nextState = state * lcgMult + lcgAdd;
-            m = (nextState >> 8) & 0x7fff00;
-            if (minMant <= m && m <= maxMant) {
-                out.push_back(nextState);
+            for(int i = minStepSize; i <= maxStepSize; i++) {
+                m = (nextState >> 8) & 0x7fff00;
+                if (minMant <= m && m <= maxMant) {
+                    out.push_back(nextState);
+                }
+                nextState = nextState * 214013 + 2531011;
             }
-        } 
+        }
         return out;
     }
 
 
-    tie(exLcgAdd, exLcgMult) = getLcgConsts(stepSize - 1);
     for (uint32_t state : states) {
-        nextState = state * exLcgMult + exLcgAdd;
-        m = (nextState >> 8) & 0x7fff00;
-        if (exMinMant <= m && m <= exMaxMant) {
-            nextState = nextState * 214013u + 2531011u;
+        nextState = state * lcgMult + lcgAdd;
+        for(int i = minStepSize; i <= maxStepSize; i++) {
             m = (nextState >> 8) & 0x7fff00;
             if (minMant <= m && m <= maxMant) {
-                out.push_back(nextState);
+                m = (((nextState - 2531011) * 3115528533) >> 8) & 0x7fff00;
+                if (exMinMant <= m && m <= exMaxMant) {
+                    out.push_back(nextState);
+                }
             }
+            nextState = nextState * 214013 + 2531011;
         }
     }
     return out;
 }
 
-vector<uint32_t> stateFinder(int stepSize = 1) {
-    vector<uint32_t> states, prevStates;
+vector<uint32_t> stateFinder(vector<uint32_t> initState = {}, int minStepSize = 1, int maxStepSize = -1, bool routeMode = false) {
+    vector<uint32_t> states = initState, prevStates1, prevStates2, prevStates3;
     tuple<float, float> hitCrit, dmg;
     string strIn;
     Weapon weapon;
     uint32_t temp = 4294967296, lcgAdd, lcgMult;
     char t;
+    int mode = 0;
 
-    cout << "Step size: ";
+    cout << endl << "STATE FINDER" << endl;
+    cout << "Min step size: ";
     cin >> strIn;
-    transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
     t = strIn[0];
-    if (t != 'n' && t != 'x') {
-        stepSize = stoi(strIn);
+    t = tolower(t);
+    if (t != 'x') {
+        if (t != 'n') {
+            minStepSize = stoi(strIn);
+        }
+        cout << "Max step size: ";
+        cin >> strIn;
+        t = tolower(t);
+        t = strIn[0];
+        if (t != 'x' && t != 'n') {
+            maxStepSize = stoi(strIn);
+        } else {
+            maxStepSize = minStepSize;
+        }
     }
     weapon.setStats();
     cout << endl;
@@ -669,14 +743,14 @@ vector<uint32_t> stateFinder(int stepSize = 1) {
             cout << "save = Save current States" << endl;
             cout << "load = Load into current States" << endl;
             cout << "print = List current States" << endl;
-            cout << "weapon = Show weapon stats" << endl;
+            cout << "weapon = Show (weapon) stats" << endl;
             cout << "change = Change values" << endl;
             cout << endl;
             continue;
         }
         if (t == 'x') {break;}
-        if (t == 'b') {states = prevStates; temp = states.size(); continue;}
-        if (t == 'n') {states = possibleStates(states, stepSize); continue;}
+        if (t == 'b') {states = prevStates1; prevStates1 = prevStates2; prevStates2 = prevStates3; temp = states.size(); continue;}
+        if (t == 'n') {states = searchStates(states, minStepSize, 0, make_tuple(0, 0), make_tuple(0, 0), routeMode); continue;}
         if (t == 's') {
             cout << "File name: ";
             cin >> strIn;
@@ -694,23 +768,40 @@ vector<uint32_t> stateFinder(int stepSize = 1) {
         }
         if (t == 'p') {
             temp = states.size();
-            cout << "States in " << stepSize << " steps: " << endl;
+            cout << "States in " << minStepSize << " steps: " << endl;
             for (uint32_t state : states) {
-                tie(lcgAdd, lcgMult) = getLcgConsts(stepSize);
+                tie(lcgAdd, lcgMult) = getLcgConsts(minStepSize);
                 cout << int(state*lcgMult + lcgAdd) << endl;
             }
             cout << endl;
             cout << endl;
             continue;
         }
-        if (t == 'w') {weapon.printStats(); cout << endl; continue;}
+        if (t == 'w') {
+            if (minStepSize < maxStepSize) {
+                cout << endl << "Min step size: " << minStepSize << endl << "Max step size: " << maxStepSize << endl;
+            } else {
+                cout << endl << "Step size: " << minStepSize << endl;
+            }
+            weapon.printStats(); cout << endl; continue;}
         if (t == 'c') {
             cout << "Step size: ";
             cin >> strIn;
-            transform(strIn.begin(), strIn.end(), strIn.begin(), ::tolower);
             t = strIn[0];
-            if (t != 'n' && t != 'x') {
-                stepSize = stoi(strIn);
+            t = tolower(t);
+            if (t != 'x') {
+                if (t != 'n') {
+                    minStepSize = stoi(strIn);
+                }
+                cout << "Max step size: ";
+                cin >> strIn;
+                t = strIn[0];
+                t = tolower(t);
+                if (t != 'x' && t != 'n') {
+                    maxStepSize = stoi(strIn);
+                } else {
+                    maxStepSize = minStepSize;
+                }
             }
             weapon.setStats();
             cout << endl;
@@ -732,14 +823,16 @@ vector<uint32_t> stateFinder(int stepSize = 1) {
             cout << "Hit/Crit vals: " << fixed << setprecision(2) << get<0>(hitCrit) << " " << get<1>(hitCrit) << endl;
             cout << "Damage vals: " << fixed << setprecision(2) << get<0>(dmg) << " " << get<1>(dmg) << endl;
         }}
-        prevStates = states;
-        states = possibleStates(states, stepSize, dmg, hitCrit);
+        prevStates3 = prevStates2;
+        prevStates2 = prevStates1;
+        prevStates1 = states;
+        states = searchStates(states, minStepSize, maxStepSize, dmg, hitCrit, routeMode);
         temp = states.size();
 
-        if (temp <= 10) {
-            cout << "States in " << stepSize << " steps: " << endl;
+        if (temp > 0 && temp <= 10) {
+            cout << "States in " << minStepSize << " steps: " << endl;
             for (uint32_t state : states) {
-                tie(lcgAdd, lcgMult) = getLcgConsts(stepSize);
+                tie(lcgAdd, lcgMult) = getLcgConsts(minStepSize);
                 cout << int(state*lcgMult + lcgAdd) << endl;
             }
             cout << endl;
@@ -750,26 +843,53 @@ vector<uint32_t> stateFinder(int stepSize = 1) {
 
 
 int main() {
-    uint32_t state = -1716394832, temp;
+    uint32_t state = 0, temp;
     vector<uint32_t> states = {}, tempStates = {};
+    uint32_t u31 = 1<<31;
 
-    int stepSize = 148;
-    int MstepSize = 8;
-    int offset = 2;
+    states = stateFinder();
+    while (true) {
+        if(states.size() == 0) {state = rngManipHelper();}
+        else {state = rngManipHelper(states[0]);}
+        states = stateFinder({state});
+    }
+// 2684, 2524, 2348, 2327, 2154, 2133, 2125, 2023, 1936, 1792
 
-    // 60k/10k/80k/170k/20k/120k         431088816
-    // 113 (63)   133 (83)  
+/**
+M-m: 8
+RP-m: 16
+RY-m: 12
+L-m: 26
 
-    // Start of battle: +50
-    // To 1st shot: +36 [hit: -6 (80)]          12499
-    // To 2nd shot: +65 [hit: -4 (147)] 
-    // After 2nd shot: +24 / +50
+RY cycle
+Start of battle: 212
+After targeting: 288
+Shot (dmg roll): 262
+After shot: 330 (326 if V dies)
 
-    states = LoadVector("test");
-    //states = stateFinder();
-    searchNextGoal(state, states, 1);
-    //if (states.size()) {stateProgressHandler(states[0], 164, 8);}
-    //else {stateProgressHandler();}
+
+Start of battle: 212
+L crit: 1402 (dmg roll: 1403)
+RY crit: 2373 (dmg roll: 2374)
+RP crit: 2849 (dm roll (rp): 2850;      dmg roll (e): 2852)
+M crit: 3439 (dmg roll: 3440)
+
+HS: 3584
+1st PaB:  (dmg roll: )
+
+2nd PaB no crit: (dmg roll: )
+1st Hero Sight: 
+2nd Hero Sight: n:          b: 
+Valkyrie crit: nn:      nb:     bn:     bb:
+
+End: ~12500
+
+
+
+*/
+
+    
+
 
 
     /** 
@@ -949,9 +1069,9 @@ int main() {
      * c = m [+m]
      * 
      * m = Mov/tile preview (per valid tile):
-     *          +2 per entity in range of char for each weapon
+     *          +2 per entity in range of char (for each weapon)
      * 
-     * 
+     * switch players in co-op: 20???????
      * AOE: +1 per in AOE
      * 
      * Move action: M: 56/52, RL: 56, Y:68      (28, 20, 28)
