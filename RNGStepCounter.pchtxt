@@ -2,8 +2,16 @@
 @flag offset_shift 0x100
 
 @enabled
-00f763fc 14008052 // mov w20, #0x0
+00277c68 007801b0 // adrp x0, #0x2f01000    >> Display current on reaction shot preview
+00277c6c 001043f9 // ldr x0, [x0, #0x620]
+00277c70 000040f9 // ldr x0, [x0]
+00277c74 006443b9 // ldr w0, [x0, #0x364]
+00f763fc 14008052 // mov w20, #0x0          >> Start at 0
 00f7649c 14008072 // movk w20, #0x0
+0041a044 e0030a2a // mov w0, w10            >> Display current state on damage roll
+0041a03c 1f2003d5 // nop
+00276868 e803002a // mov w8, w0
+002776dc e803002a // mov w8, w0
 0025bdec 2b008052 // cEnemy action related (Hoppers, Valkyries, Bwaario, Lava Queen)
 0025bdf0 33010b0b
 002788e8 2b008052 // cCrit + Hit on Boomshot for extra AOE targets
