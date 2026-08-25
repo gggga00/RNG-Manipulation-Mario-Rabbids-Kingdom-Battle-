@@ -27,9 +27,8 @@ The RNG state is progressed by 30 different functions, some of which progress it
 - Tornado
 - Rabbid Kong wave block hits
 - Load areas/End turn related?? (Is called in 3-2, 3-6, UC2)
-- DKA DLC Final Boss Phase 2 RK
   
-and 2 more whose purpose is to be determined. 
+and 3 more whose purpose is to be determined. 
   
   
 Notably not included are:
