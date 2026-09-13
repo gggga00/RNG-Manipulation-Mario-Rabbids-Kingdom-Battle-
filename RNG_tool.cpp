@@ -9,12 +9,272 @@
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
+#include <fstream>
+#include <utility>
+#include <numeric>
 
 using namespace std;
 
+constexpr int MIN_W = 1;
+constexpr int MIN_H = 1;
+constexpr int MAX_W = 128;
+constexpr int MAX_H = 128;
 
-struct Weapon
-{
+// Bit flags for cardinal neighbours.
+constexpr uint8_t N_UP    = 1u << 0;
+constexpr uint8_t N_RIGHT = 1u << 1;
+constexpr uint8_t N_DOWN  = 1u << 2;
+constexpr uint8_t N_LEFT  = 1u << 3;
+
+// Burn stats
+constexpr float myMaxRadius = 30.0;
+constexpr int myNumOfAreas = 2;
+constexpr int myNumOfPointsForCompletelyRandomPath = 6;
+constexpr int myAreaMinSize = 3;
+constexpr int myAreaMaxSize = 5;
+constexpr int myNumOfPointsPerArea = 12;
+constexpr float myMinDistanceBetweenPoints = 4.0;
+constexpr float myMaxDistanceBetweenPoints = 10.0;
+constexpr int myMaxConsecutiveSkips = 100;
+constexpr float myInitAngle = 120.0;
+constexpr float myAngleRange = 450.0;
+constexpr float myBurnLenght = 30.0;
+constexpr float myBurnSpeed = 9.0;
+constexpr float myBurnAccelerationDistance = 2.0;
+constexpr float myBurnDecelerationDistance = 3.0;
+constexpr bool myDoNotEndInCover = true;
+constexpr float myAlliesAvoidanceProbability = 0.0;
+constexpr float myEnemiesAvoidanceProbability = 0.0;
+constexpr float myPropagationRadius = 1.0;
+constexpr float myBoundingRadius = 0.95;
+constexpr int myMaxAlliesPropagationTimes = 2;
+constexpr int myMaxEnemiesPropagationTimes = 1;
+constexpr float myBlockedWaitInMillisec = 500;
+constexpr float myTimeToStayInPreviewIfPropagated = 0.3;
+//Special Burn stats
+constexpr float PirrabidPlantPropagationRadius = 1.7;
+constexpr float	PirrabidPlantBoundingRadius = 1.2;
+constexpr float BucklerPropagationRadius = 1.7;
+constexpr float	BucklerBoundingRadius = 1.2;
+constexpr float SmasherPropagationRadius = 1.7;
+constexpr float	SmasherBoundingRadius = 1.2;
+constexpr float SmasherBurnSpeed = 8.0;
+constexpr float SpecialBucklerPropagationRadius = 1.7;
+constexpr float	SpecialBucklerBoundingRadius = 1.2;
+constexpr int SpecialBucklerAreaMinSize = 2;
+constexpr int SpecialBucklerAreaMaxSize = 2;
+constexpr int SpecialBucklerMaxConsecutiveSkips = 25;
+
+
+struct Tile {
+    bool on = false;
+    uint8_t neighbours = 0;
+    int x;
+    int y;
+};
+
+class Map {
+public:
+    Map(int width = 31, int height = 31) { resize(width, height); }
+
+    int width() const { return width_; }
+    int height() const { return height_; }
+
+    int getIndex(int x, int y) {return index(x, y);}
+
+    bool inBounds(int x, int y) const {
+        return x >= 0 && y >= 0 && x < width_ && y < height_;
+    }
+
+    bool isOn(int x, int y) const {
+        return inBounds(x, y) && cells_[index(x, y)].on;
+    }
+
+    uint8_t neighbourMask(int x, int y) const {
+        return inBounds(x, y) ? cells_[index(x, y)].neighbours : 0;
+    }
+
+    void set(int x, int y, bool on) {
+        if (!inBounds(x, y)) return;
+        cells_[index(x, y)].on = on;
+    }
+
+    void setNeighbours(int x, int y, uint32_t neighbours) {
+        // UP = +1
+        // RIGHT = +2
+        // DOWN = +4
+        // LEFT = +8
+        if (!inBounds(x, y)) return;
+        cells_[index(x, y)].neighbours = neighbours;
+    }
+
+    vector<Tile> getNeighbours(int x, int y) {
+        // Correct order: LEFT, RIGHT, DOWN, UP
+        vector<Tile> neighbourList;
+        if (!inBounds(x, y)) return neighbourList;
+        uint32_t neighbours = cells_[index(x, y)].neighbours;
+        if((neighbours & 8) && inBounds(x-1, y)) {
+            Tile left;
+            left.x = x-1;
+            left.y = y;
+            neighbourList.push_back(left);
+        }
+        if((neighbours & 2) && inBounds(x+1, y)) {
+            Tile right;
+            right.x = x+1;
+            right.y = y;
+            neighbourList.push_back(right);
+        }
+        if((neighbours & 4) && inBounds(x, y+1)) {
+            Tile down;
+            down.x = x;
+            down.y = y+1;
+            neighbourList.push_back(down);
+        }
+        if((neighbours & 1) && inBounds(x, y-1)) {
+            Tile up;
+            up.x = x;
+            up.y = y-1;
+            neighbourList.push_back(up);
+        }
+        return neighbourList;
+    }
+
+    void resize(int newWidth, int newHeight) {
+        newWidth = min(max(newWidth, MIN_W), MAX_W);
+        newHeight = min(max(newHeight, MIN_H), MAX_H);
+
+        vector<Tile> newCells(static_cast<size_t>(newWidth * newHeight));
+        const int copyW = min(width_, newWidth);
+        const int copyH = min(height_, newHeight);
+
+        if (width_ > 0 && height_ > 0) {
+            for (int y = 0; y < copyH; ++y) {
+                for (int x = 0; x < copyW; ++x) {
+                    newCells[static_cast<size_t>(y * newWidth + x)] =
+                        cells_[static_cast<size_t>(y * width_ + x)];
+                }
+            }
+        }
+
+        width_ = newWidth;
+        height_ = newHeight;
+        cells_ = move(newCells);
+        recomputeConnections();
+    }
+
+    void clear() {
+        for (Tile& cell : cells_) {
+            cell.on = false;
+            cell.neighbours = 0;
+        }
+    }
+
+    bool save(const string& path) const {
+        ofstream out(path);
+        if (!out) {
+            cout << "Could not open file for writing." << endl;
+            return false;
+        }
+
+        out << "GRIDMAP 1\n";
+        out << width_ << ' ' << height_ << '\n';
+        for (int y = 0; y < height_; ++y) {
+            for (int x = 0; x < width_; ++x) {
+                out << (isOn(x, y) ? '1' : '0');
+            }
+            out << '\n';
+        }
+
+        if (!out.good()) {
+            cout << "Error while writing file." << endl;
+            return false;
+        }
+
+        return true;
+    }
+
+    bool load(const string& path) {
+        ifstream in(path);
+        if (!in) {
+            cout << "Could not open file." << endl;
+            return false;
+        }
+
+        string header;
+        if (!(in >> header) || header != "GRIDMAP") {
+            cout << "Invalid map file header." << endl;
+            return false;
+        }
+
+        int version = 0;
+        int fileWidth = 0;
+        int fileHeight = 0;
+        if (!(in >> version) || version != 1 || !(in >> fileWidth >> fileHeight)) {
+            cout << "Unsupported or malformed map file." << endl;
+            return false;
+        }
+
+        if (fileWidth < MIN_W || fileWidth > MAX_W ||
+            fileHeight < MIN_H || fileHeight > MAX_H) {
+            cout << "Map dimensions are outside the supported range." << endl;
+            return false;
+        }
+
+        vector<Tile> loaded(static_cast<size_t>(fileWidth * fileHeight));
+        for (int y = 0; y < fileHeight; ++y) {
+            string row;
+            if (!(in >> row) || static_cast<int>(row.size()) != fileWidth) {
+                cout << "Malformed map rows." << endl;
+                return false;
+            }
+
+            for (int x = 0; x < fileWidth; ++x) {
+                const char value = row[static_cast<size_t>(x)];
+                if (value != '0' && value != '1') {
+                    cout << "Map contains an invalid tile value." << endl;
+                    return false;
+                }
+                loaded[static_cast<size_t>(y * fileWidth + x)].on = (value == '1');
+                loaded[static_cast<size_t>(y * fileWidth + x)].x = x;
+                loaded[static_cast<size_t>(y * fileWidth + x)].y = y;
+            }
+        }
+
+        width_ = fileWidth;
+        height_ = fileHeight;
+        cells_ = move(loaded);
+        recomputeConnections();
+        return true;
+    }
+
+private:
+    int width_ = 0;
+    int height_ = 0;
+    vector<Tile> cells_;
+
+    size_t index(int x, int y) const {
+        return static_cast<size_t>(y * width_ + x);
+    }
+
+    void recomputeConnections() {
+        for (int y = 0; y < height_; ++y) {
+            for (int x = 0; x < width_; ++x) {
+                Tile& cell = cells_[index(x, y)];
+                cell.neighbours = 0;
+
+                if (!cell.on) continue;
+
+                if (isOn(x, y - 1)) cell.neighbours |= N_UP;
+                if (isOn(x + 1, y)) cell.neighbours |= N_RIGHT;
+                if (isOn(x, y + 1)) cell.neighbours |= N_DOWN;
+                if (isOn(x - 1, y)) cell.neighbours |= N_LEFT;
+            }
+        }
+    }
+};
+
+struct Weapon {
     float hitChance, critChance; 
     int minDmg, maxDmg, baseDmg, critDmg;
 
@@ -103,8 +363,7 @@ struct Weapon
     }
 };
 
-void SaveVector(const string& filename, const vector<uint32_t>& data)
-{
+void SaveVector(const string& filename, const vector<uint32_t>& data) {
     vector<uint32_t> states = {};
     for(uint32_t a : data) {
         states.push_back((a < 2147483648) ? a : a-2147483648);
@@ -126,9 +385,7 @@ void SaveVector(const string& filename, const vector<uint32_t>& data)
     if (!file)
         throw runtime_error("Failed while writing file.");
 }
-
-vector<uint32_t> LoadVector(const string& filename)
-{
+vector<uint32_t> LoadVector(const string& filename) {
     ifstream file(filename, ios::binary);
     if (!file)
         throw runtime_error("Failed to open file for reading.");
@@ -190,6 +447,15 @@ uint32_t lcgWrapper(uint32_t seed, int steps) {
     return (seed * mult) + add;
 }
 
+int getLcgSteps(uint32_t start, uint32_t end) {
+    int i = 0;
+    while(start != end) {
+        start = lcg(start);
+        i++;
+    }
+    return i;
+}
+
 float stateToValue(uint32_t state) {
     uint32_t hexValue = (float) (state >> 8 & 0x7fff00 | 0x3f800000);
     float f;
@@ -237,6 +503,249 @@ tuple<uint32_t, uint32_t> valueToMantissa(tuple<float, float> vals) {
     return make_tuple(minMantissa, maxMantissa);
 }
 
+int getTilesetIndex(vector<Tile>& tileset, int x, int y) {
+    for(int j = 0; j < tileset.size(); j++) {
+        if((x == tileset[j].x) && (y == tileset[j].y)) {
+            return j;
+        }
+    }
+    return -1;
+}
+
+Map generateCandidateTiles(Map map, vector<Tile>& candidateTiles) {
+    Map out(map.width(), map.height());
+    int i = 0, dx, dy;
+    vector<Tile> neighbours;
+    Tile start = candidateTiles[0];
+    while (i < candidateTiles.size())
+    {
+        neighbours = map.getNeighbours(candidateTiles[i].x, candidateTiles[i].y);
+        for(int k = 0; k < neighbours.size(); k++) {
+            Tile neighbour = neighbours[k];
+            dx = neighbour.x - start.x;
+            dy = neighbour.y - start.y;
+            if(dx*dx + dy*dy > (myMaxRadius/2)*(myMaxRadius/2)) { // check in range
+                continue;
+            }
+            if(getTilesetIndex(candidateTiles, neighbour.x, neighbour.y) != -1) { // check if already in set
+                continue;
+            }
+            candidateTiles.push_back(neighbour);
+            out.set(neighbour.x, neighbour.y, true);
+        }
+        i++;
+    }
+    return out;
+}
+
+int validateArea(vector<Tile>& candidateTiles, uint32_t rngState, Tile bottomleft, int randomAreaSize, vector<int> invIndex) {
+    int tempX, tempY, tempIndex;
+    sort(invIndex.begin(), invIndex.end());
+    for (int i = 0; i < randomAreaSize; i++) {
+        for (int j = 0; j < randomAreaSize; j++) {
+            tempX = bottomleft.x + j;
+            tempY = bottomleft.y + i;
+            tempIndex = getTilesetIndex(candidateTiles, tempX, tempY);
+            if(tempIndex == -1) {
+                return 0;
+            }
+            rngState = lcg(rngState);
+            if(!(myEnemiesAvoidanceProbability <= stateToValue(rngState)) || !(myAlliesAvoidanceProbability <= stateToValue(rngState))) {
+                return 0; // check enemy/ally avoidance, but it is 0 anyway
+            }
+            if (!binary_search(invIndex.begin(), invIndex.end(), tempIndex)) { // check idk
+                return 0;
+            }
+            if (false) { //check idk
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+int generateCandidateArea (vector<Tile>& outWaypoints, vector<int> invIndex, vector<Tile>& candidateTiles, uint32_t& rngState, int randomAreaSize) {
+    if (myMaxConsecutiveSkips != 0) {
+        int d2, dx, dy, center, consecutiveSkips = 0;
+        int size = candidateTiles.size()-1;
+        Tile randomTile;
+        while (consecutiveSkips < myMaxConsecutiveSkips) {
+            rngState = lcg(rngState);
+            randomTile = candidateTiles[stateToValue(rngState)*size - size];
+            if(getTilesetIndex(outWaypoints, randomTile.x, randomTile.y) != -1) {
+                consecutiveSkips += 1;
+                continue;
+            }
+            center = validateArea(candidateTiles, rngState, randomTile, randomAreaSize, invIndex);
+            if(center) {
+                dx = candidateTiles[center].x - outWaypoints[-1].x;
+                dy = candidateTiles[center].y - outWaypoints[-1].y;
+                d2 = dx*dx + dy*dy;
+                if((myMinDistanceBetweenPoints*myMinDistanceBetweenPoints < d2) && (d2 < myMaxDistanceBetweenPoints*myMaxDistanceBetweenPoints)) {
+                    outWaypoints.push_back(randomTile);
+                }
+                return 1;
+            }
+            consecutiveSkips += 1;
+        }
+    }
+    return 0;
+}
+
+int generateWaypoints (vector<Tile>& outWaypoints, vector<int> invIndex, vector<Tile>& candidateTiles, uint32_t& rngState) {
+    if((myNumOfAreas >= 1) && (myMaxConsecutiveSkips >= 0)) {
+        int consecutiveSkips = 0, numOfAreas = 0;
+        int randomAreaSize;
+        int dAreaSize = myAreaMaxSize - myAreaMinSize;
+        while ((numOfAreas < myNumOfAreas) && (consecutiveSkips <= myMaxConsecutiveSkips)) {
+            rngState = lcg(rngState);
+            randomAreaSize = int((stateToValue(rngState)*dAreaSize - dAreaSize)) + myAreaMinSize;
+            if (myDoNotEndInCover && (numOfAreas == (myNumOfAreas - 1))) {
+                randomAreaSize = 3;
+            }
+            if (generateCandidateArea(outWaypoints, invIndex, candidateTiles, rngState, randomAreaSize) != 0) { // check if valid area generated
+                consecutiveSkips += 1;
+            }
+            else {
+                consecutiveSkips = 0;
+                numOfAreas += 1;
+            }
+        }
+    }
+    return 0;
+}
+
+int generateFallbackWaypoints(vector<Tile>& outWaypoints, vector<int> invIndex, vector<Tile>& candidateTiles, uint32_t& rngState) {
+    float rngVal;
+    int numCandidates = candidateTiles.size() - 1;
+    int tileIndex;
+    int numOfPoints = 0;
+    sort(invIndex.begin(), invIndex.end()); 
+
+    if((myNumOfPointsForCompletelyRandomPath > 0) && (myMaxConsecutiveSkips > 0)) {
+        while (numOfPoints < myNumOfPointsForCompletelyRandomPath)
+        {
+            int consecutiveSkips = 0;
+            rngState = lcg(rngState);
+            rngVal = stateToValue(rngState);
+            tileIndex = int(rngVal*numCandidates - numCandidates);
+
+            if(!binary_search(invIndex.begin(), invIndex.end(), tileIndex)) { // check for valid selection
+                outWaypoints.push_back(candidateTiles[tileIndex]);
+                consecutiveSkips = 0;
+                numOfPoints += 1;
+                continue;
+            }
+
+            consecutiveSkips += 1;
+            if(consecutiveSkips >= myMaxConsecutiveSkips) {return consecutiveSkips;}
+        }
+    }
+
+    return 0;
+}
+
+int accurateBurnSim(Map map, vector<int> invIndex, vector<Tile>& out, uint32_t rngState, int target_x, int target_y) {
+    Tile target;
+    target.x = target_x;
+    target.y = target_x;
+    vector<Tile> candidateTiles = {target};
+    generateCandidateTiles(map, candidateTiles);
+
+    if(generateWaypoints(out, invIndex, candidateTiles, rngState)) {
+        return 1;
+    } else {
+        generateFallbackWaypoints(out, invIndex, candidateTiles, rngState);
+    }
+
+    return 0;
+}
+
+tuple<vector<uint32_t>, vector<uint32_t>> fastBurnSim(vector<uint32_t> states, vector<Tile> candidateTiles, Map candidateMap, Map valMap, Map valMapFB, tuple<float, float> goalVals) {
+    // This function assumes main waypoint generation will always fail (for validateArea valMap determines the exact iteration)
+
+    // for main method: does you own char block area?
+    // first tile starts at 1 (0 is invalid)
+    // subsequent? duplicates get skipped
+    // does candidate tileset change during process?
+    // tornado skipped?
+
+    float minGoalVal, maxGoalVal;
+    tie(minGoalVal, maxGoalVal) = goalVals;
+
+    uint32_t limit, tempState, tempStateStart, u31 = 1u<<31;
+    int consecutiveSkipsB, consecutiveSkipsC, numOfPoints, rngSize, tempX, tempY;
+    float rngVal;
+    int size = candidateTiles.size()-1;
+    Tile rngTile;
+    vector<int> outIndex = {};
+    vector<uint32_t> seeds = {};
+    vector<uint32_t> tempStates = {};
+    seeds.reserve(int(u31 * (maxGoalVal-minGoalVal)));
+    tempStates.reserve(int(u31 * (maxGoalVal-minGoalVal)));
+
+
+    bool isEmpty = states.empty();
+    limit = (isEmpty ? u31 : states.size());
+
+    for(uint32_t i = 0; i < limit; i++) {
+        tempStateStart = (isEmpty ? i : states[i]);
+        tempState = tempStateStart;
+        //Progress RNG state by going through main waypoint generation
+        for(int consecutiveSkipsA = 0; consecutiveSkipsA <= myMaxConsecutiveSkips; consecutiveSkipsA++) {
+            tempState = lcg(tempState);
+            rngSize = int((stateToValue(tempState)*2 - 2) + 3);
+
+            consecutiveSkipsB = 0; 
+            while(consecutiveSkipsB < myMaxConsecutiveSkips) {
+                tempState = lcg(tempState);
+                rngTile = candidateTiles[int(stateToValue(tempState)*size) - size];
+
+                for (int y = 0; y < rngSize; y++) {
+                    for (int x = 0; x < rngSize; x++) {
+                        tempX = rngTile.x + x;
+                        tempY = rngTile.y + y;
+                        if(!candidateMap.isOn(tempX, tempY)) {
+                            goto area_failed;
+                        }
+                        tempState = lcg(tempState);
+                        if(!valMap.isOn(tempX, tempY)) {
+                            goto area_failed;
+                        }
+                    }
+                }
+                area_failed:
+                consecutiveSkipsB++;
+            }
+        }
+
+
+        // Fallback waypoint generation
+        numOfPoints = 0;
+        consecutiveSkipsC = 0;
+        while(numOfPoints < myNumOfPointsForCompletelyRandomPath)
+        {
+            tempState = tempState * 214013 + 2531011;
+            rngVal = stateToValue(tempState);
+            if((minGoalVal < rngVal) && (rngVal < maxGoalVal)) {
+                seeds.push_back(tempStateStart);
+                tempStates.push_back(tempState);
+                break;
+            }
+
+            rngTile = candidateTiles[int(rngVal*size - size)];
+            if(valMapFB.isOn(rngTile.x, rngTile.y)) { // check for valid selection (if valid interrupt, since we want to control the first waypoint)
+                break;
+            }
+            consecutiveSkipsC += 1;
+            if(consecutiveSkipsC >= myMaxConsecutiveSkips) {break;}
+        }
+    }
+
+    return {seeds, tempStates};
+}
+
+
 int damageCalc(int baseDmg, float highGround = 0, float enemyTypeBonus = 0, float MPower = 0, float weaken = 0, float reactMult = 0, float distanceFallOff = 1, float shield = 0, float protect = 0) {
     int damage = baseDmg;
     damage = int((1 + highGround) * damage + 0.5);
@@ -248,7 +757,6 @@ int damageCalc(int baseDmg, float highGround = 0, float enemyTypeBonus = 0, floa
     damage = int((1 - protect) * damage + 0.5);
     return damage;
 }
-
 tuple<int, int> reverseDamageCalc(int damage, float highGround = 0, float enemyTypeBonus = 0, float MPower = 0, float weaken = 0, float reactMult = 0, float distanceFallOff = 1, float shield = 0, float protect = 0) {
     int baseDmgApprox = int((damage / (1 - protect) / (1 + shield) / distanceFallOff / (1 + reactMult) / (1 + MPower - weaken) / (1 + enemyTypeBonus) / (1 + highGround)) + 0.5);
     int lowDmg = baseDmgApprox;
@@ -272,7 +780,6 @@ tuple<float, float> hitCritToValue(int res, float critChance, float hitChance = 
     // hit, crit
     return make_tuple(2.0 - hitChance*critChance, 2.0);
 }
-
 int valueToHitCrit(float value, float critChance = 0, float hitChance = 1) {
     if (value < 2.0 - hitChance) { // no hit
         return 0;
@@ -297,7 +804,6 @@ tuple<float, float> dmgToValue(int damage, int minDmg, int maxDmg = -1, int base
     float temp = damage - baseDmg;
     return make_tuple(max(1.0, ((temp - 0.5) + 3*dmgRange) / (2*dmgRange)), min(2.0, ((temp + 0.5) + 3*dmgRange) / (2*dmgRange)));
 }
-
 int valueToDmg(float value, int minDmg, int maxDmg = -1, int baseDmg = -1) {
     int dmgRange;
     if (maxDmg == -1) {
@@ -320,18 +826,38 @@ int valueToDmg(float value, int minDmg, int maxDmg = -1, int baseDmg = -1) {
     return damage;
 }
 
-int valueToCoinSpawnTile(float value, int numValidTiles) {
-    return (value * numValidTiles) - numValidTiles;
+tuple<int, int> valueToBounceAngle(float value1, float value2) {
+    float dx = value1 - 0.99;
+    float dy = value2 - 0.99;
+    float dz = 0;
+    float length = dx*dx + dz*dz + dy*dy;
+    length = 1 / sqrt(length);
+    dx *= length;
+    dy *= length;
+    dz *= length;
+    dx = int((5 * dx) + 0.5);
+    dy = int((5 * dy) + 0.5);
+    return make_tuple(dx, dy);
 }
-int valueToCoinSpawnDirection(float value) {
-    return (value * 6.2831855) - 6.2831855;
+
+int valueToVSCoinFlip(float value) {
+    int res = int(value*2 - 2);
+    return res; //0 = Player 1; 1 = Player 2
 }
-int valueToCoinDistanceFromCenter(float value) {
-    return (value * 0.75) + -0.75 + 0.25;
+tuple<float, float> VSCoinFlipToValue(int coinFlip) {
+    if(coinFlip) {return make_tuple(1, 1.499969482421875);} //Player 1
+    return make_tuple(1.5, 2); //Player 2
+}
+
+tuple<int, int, int> valueToCoinSpawn(int numValidTiles, float value1, float value2, float value3) {
+    int LandingTile = (value1 * numValidTiles) - numValidTiles;
+    int dirInLTile = (value2 * 6.2831855) - 6.2831855;
+    int centerdistInLTile = (value3 * 0.75) + -0.75 + 0.25;
+    return make_tuple(LandingTile, dirInLTile, centerdistInLTile);
 }
 
 bool valueToRKWaveBlockHit(float value) {
-    return (value - 1.0 <= 1.5);
+    return !(value - 1.0 <= 0.5);   // <=1.5 means hit; >1.5 means miss
 }
 
 string valueToCoverEffect(float value) {
@@ -372,23 +898,56 @@ string valueToCoverEffect(float value) {
 }
 
 
-uint32_t printState(uint32_t state, int iteration, int stepSize = 1, bool row = true, bool value = true, int minDmg = -1, int maxDmg = -1, int baseDmg = -1) {
+void printMap(Map map, vector<Tile>& candidateTiles) {
+    int temp;
+    if (candidateTiles.size() == 0) {
+        for (int y = 0; y < map.height(); ++y) {
+            for (int x = 0; x < map.width(); ++x) {
+                cout << (map.isOn(x, y) ? '1' : '0');
+            }
+            cout << '\n';
+        }
+    } else {
+        for (int y = 0; y < map.height(); ++y) {
+            for (int x = 0; x < map.width(); ++x) {
+                if(map.isOn(x, y)) {
+                    temp = getTilesetIndex(candidateTiles, x, y);
+                    if(temp == -1) {
+                        cout << setw(4) << "o";
+                    } else {
+                        cout << setw(4) << temp;
+                    }
+                } else {
+                    cout << setw(4) << '-';
+                }
+            }
+            cout << '\n';
+        }   
+    }
+}
+
+uint32_t printState(uint32_t state, int iteration = 0, int stepSize = 1, bool showRow = true, bool showHex = false, bool showVal = true, int minDmg = -1, int maxDmg = -1, int baseDmg = -1, vector<int> candSizes = {-1}) {
     uint32_t temp = state;
+    int candSize = candSizes.size();
     float val;
     if (iteration < 0) {stepSize = -stepSize;}
     iteration *= stepSize;
     for(int j = 0; abs(j) <= iteration; j += stepSize) {
-        if(row) {cout << j << ":  ";}
-        cout << int(temp);
+        if(showRow) {cout << j << ":  ";}
+        cout << setw(11) << int(temp);
         val = stateToValue(temp);
-        if(value) {cout << " (value: " << val << ")";}
+        if (showHex) {cout << " (hex: 0x" << hex << uppercase << temp << dec << ")";}
+        if(showVal) {cout << " (value: " << val << ")";}
         if(minDmg != -1) {
             cout << " (dmg: " << valueToDmg(val, minDmg, maxDmg, baseDmg) << ")"; 
+        }
+        if (candSizes[j%candSize] != -1) {
+            cout << " (tile: " << int(val*(candSizes[j%candSize]-2) - (candSizes[j%candSize]-2))+3 << ")"; 
         }
         cout << endl;
         temp = lcgWrapper(temp, stepSize);
     }
-
+    cout << endl;
     return temp;
 }
 
@@ -573,6 +1132,7 @@ uint32_t rngManipHelper(uint32_t State = 0, int StepSize = 0, int MStepSize = 2,
 
 
 vector<uint32_t> searchStates(vector<uint32_t>& states, int minStepSize = 1, int maxStepSize = 0, tuple<float, float> vals = make_tuple(0, 0), tuple<float, float> exVals = make_tuple(0, 0), bool routeMode = false) {
+    // exVals are for checking restricting the previous value right before Vals
     vector<uint32_t> out;
     uint32_t lcgAdd, lcgMult, minMant, maxMant, exMinMant, exMaxMant, nextState, m;
     if(abs(maxStepSize) < abs(minStepSize)) {maxStepSize = minStepSize;}
@@ -845,46 +1405,187 @@ vector<uint32_t> stateFinder(vector<uint32_t> initState = {}, int minStepSize = 
 int main() {
     uint32_t state = 0, temp;
     vector<uint32_t> states = {}, tempStates = {};
+    vector<uint32_t> bounce50, bounce05, bounce51, bounce15, bounce52, bounce25, bounce42, bounce24, bounce43, bounce34, bounce44;
     uint32_t u31 = 1<<31;
+    float val;
 
-    states = stateFinder();
-    while (true) {
-        if(states.size() == 0) {state = rngManipHelper();}
-        else {state = rngManipHelper(states[0]);}
+    Map muc3, m461, m22, valmuc3, valFBmuc3;
+    muc3.load("uc3.grid");
+    muc3.setNeighbours(18, 17, 12);
+    muc3.setNeighbours(19, 17, 7);
+    muc3.setNeighbours(17, 22, 9);
+    muc3.setNeighbours(18, 22, 7);
+
+    valmuc3.load("uc3_val.grid");
+    valFBmuc3.load("uc3_valFB.grid");
+
+    if(true) {
+        m461.load("4-6-1.grid");
+        m461.setNeighbours(15, 3, 12);
+        m461.setNeighbours(15, 4, 13);
+        m461.setNeighbours(15, 5, 9);
+
+        m461.setNeighbours(16, 3, 7);
+        m461.setNeighbours(16, 4, 7);
+        m461.setNeighbours(16, 5, 7);
+
+        m461.setNeighbours(15, 9, 12);
+        m461.setNeighbours(15, 10, 9);
+        m461.setNeighbours(15, 15, 12);
+        m461.setNeighbours(15, 16, 9);
+
+        m461.setNeighbours(15, 8, 11);
+        m461.setNeighbours(16, 9, 7);
+        m461.setNeighbours(16, 10, 7);
+        m461.setNeighbours(16, 15, 7);
+        m461.setNeighbours(16, 16, 7);
+        m461.setNeighbours(15, 17, 14);
+
+
+        m461.setNeighbours(19, 17, 6);
+        m461.setNeighbours(19, 18, 3);
+        m461.setNeighbours(21, 22, 3);
+
+        m461.setNeighbours(19, 16, 11);
+        m461.setNeighbours(18, 17, 13);
+        m461.setNeighbours(18, 18, 13);
+        m461.setNeighbours(21, 23, 14);
+
+
+        m461.setNeighbours(21, 25, 6);
+        m461.setNeighbours(19, 25, 12);
+        m461.setNeighbours(18, 25, 10);
+        m461.setNeighbours(15, 25, 12);
+        m461.setNeighbours(14, 25, 10);
+        m461.setNeighbours(13, 25, 14);
+        m461.setNeighbours(12, 25, 6);
+
+        m461.setNeighbours(21, 24, 11);
+        m461.setNeighbours(19, 24, 11);
+        m461.setNeighbours(18, 24, 11);
+        m461.setNeighbours(17, 25, 13);
+        m461.setNeighbours(16, 25, 7);
+        m461.setNeighbours(15, 24, 11);
+        m461.setNeighbours(14, 24, 11);
+        m461.setNeighbours(13, 24, 11);
+        m461.setNeighbours(12, 24, 11);
+
+
+        m461.setNeighbours(11, 26, 6);
+        m461.setNeighbours(11, 27, 7);
+        m461.setNeighbours(11, 28, 3);
+
+        m461.setNeighbours(10, 26, 13);
+        m461.setNeighbours(10, 27, 13);
+        m461.setNeighbours(10, 28, 9);
+    }
+
+    Tile RabbidLuigi;
+    RabbidLuigi.x = 18;
+    RabbidLuigi.y = 17;
+
+    Tile Luigi;
+    Luigi.x = 21;
+    Luigi.y = 14;
+
+
+    vector<Tile> candidateTilesRL = {RabbidLuigi};
+    vector<int> invIndexRL = {102, 139, 225, 153, 184, 10, 16, 24, 35, 49, 67, 84, 39, 52, 71, 89, 101, 113};
+    vector<int> invIndexRLFB = {102, 139, 225, 153, 184};
+    Map candidateMapRL = generateCandidateTiles(muc3, candidateTilesRL);
+    tuple<float, float> rl = make_tuple(1.0039, 1.004);
+    
+    vector<Tile> candidateTilesL = {Luigi};
+    vector<int> invIndexL = {8, 124, 40, 153, 28, 21, 19, 25, 31, 37, 70, 60, 72, 87, 76, 91};
+    vector<int> invIndexLFB = {8, 124, 40, 153};
+    Map candidateMapL = generateCandidateTiles(muc3, candidateTilesL);
+    tuple<float, float> l = make_tuple(1.5643, 1.5644);
+
+    int rlSize = candidateTilesRL.size();
+    cout << endl << "Rabbid Luigi: " << rlSize << endl;
+    printMap(muc3, candidateTilesRL);
+    int lSize = candidateTilesL.size();
+    cout << endl << "Luigi: " << lSize << endl;
+    printMap(muc3, candidateTilesL);
+
+    states = searchStates(states, 1, 0, rl, make_tuple(0, 0), false);
+    states = searchStates(states, 2, 0, l, make_tuple(0, 0), false);
+
+    temp = -334585697;
+    printState(temp, getLcgSteps(temp, 1125108890));
+
+    cout << states.size() << endl;
+    for(uint32_t state : states) {
+        //printState(lcgWrapper(state, -3), 4, 1, true, true);
+    }
+
+    return 1;
+
+    // RL: 1/254 = 0.0039370078740157
+    //  *208: 1.8071 =205/254, 1.811 =206/254
+    //  207: 1.80698
+    //  209: 1.81104
+    //    0: 8517862 (value: 1.00394)
+    //    1: 10174876 (value: 1.00473)
+    //    2: 21433483 (value: 1.00998)
+    //   27: -1917279469 (value: 1.10718)
+    //   94: 765002277 (value: 1.35623)
+    //  148: -942392074 (value: 1.56116)
+    //  149: -935412080 (value: 1.56439)
+    //  156: 1267122570 (value: 1.59003)
+    // L: 1/221 = 0.0045248868778281        249-252
+    //  *125: 1.55988, 1.56384, -936229726 (value: 1.56403)
+    //  124: 1.55988
+    //  126: 1.56387; -940253556
+    //  211: 1.95181
+    //  204: -166101650 (value: 1.92264)
+    //  184: 1792256455 (value: 1.83456)
+    //  181: 1.81635
+    //  170: 1534418553 (value: 1.71451)
+    //  134: 1267122570 (value: 1.59003)
+    //  121: -980835552 (value: 1.54324)
+    //  111: -1078116383 (value: 1.49796)
+    //  101: 1.4635
+    //   78: 765002277 (value: 1.35623)
+    //   64: 580089693 (value: 1.27011)
+    //   59: 576482388 (value: 1.26843)
+    //    2: 21456162 (value: 1.00998)
+    //    1: 
+ 
+
+
+
+
+
+
+    states = stateFinder({}, 1, -1, true);
+    while(true) {
+        if(states.size() > 0) {state = rngManipHelper(states[0]);}
+        else {state = rngManipHelper();}
         states = stateFinder({state});
     }
+
+
+
 // 2684, 2524, 2348, 2327, 2154, 2133, 2125, 2023, 1936, 1792
 
 /**
-M-m: 8
-RP-m: 16
-RY-m: 12
-L-m: 26
+M-m: +4
+RM-m: +10
+L-m: +12
 
-RY cycle
-Start of battle: 212
-After targeting: 288
-Shot (dmg roll): 262
-After shot: 330 (326 if V dies)
+Loads: +58
+Start of battle: +60
+L Sentry: +458   468-926     
+448     1239-1317-1485-1635-1687
+448     1854-1896-    -2260-2312
+434     2537-         -2919-2971
 
-
-Start of battle: 212
-L crit: 1402 (dmg roll: 1403)
-RY crit: 2373 (dmg roll: 2374)
-RP crit: 2849 (dm roll (rp): 2850;      dmg roll (e): 2852)
-M crit: 3439 (dmg roll: 3440)
-
-HS: 3584
-1st PaB:  (dmg roll: )
-
-2nd PaB no crit: (dmg roll: )
-1st Hero Sight: 
-2nd Hero Sight: n:          b: 
-Valkyrie crit: nn:      nb:     bn:     bb:
-
-End: ~12500
+Bounce dir: 
+M Melee: 
 
 
+262-543
 
 */
 
