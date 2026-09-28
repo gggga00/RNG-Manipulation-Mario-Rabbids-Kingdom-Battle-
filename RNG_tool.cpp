@@ -12,6 +12,7 @@
 #include <fstream>
 #include <utility>
 #include <numeric>
+#include <array>
 
 using namespace std;
 
@@ -67,6 +68,10 @@ constexpr int SpecialBucklerAreaMinSize = 2;
 constexpr int SpecialBucklerAreaMaxSize = 2;
 constexpr int SpecialBucklerMaxConsecutiveSkips = 25;
 
+struct Affine {
+    int mult;
+    int add;
+};
 
 struct Tile {
     bool on = false;
@@ -91,6 +96,22 @@ public:
     bool isOn(int x, int y) const {
         return inBounds(x, y) && cells_[index(x, y)].on;
     }
+
+    Map operator&(Map b) {
+        int w = min(width_, b.width());
+        int h = min(height_, b.height());
+
+        Map out;
+        out.resize(w, h);
+
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                out.set(x, y, isOn(x, y) & b.isOn(x, y));
+            }
+        }
+        return out;
+    }
+
 
     uint8_t neighbourMask(int x, int y) const {
         return inBounds(x, y) ? cells_[index(x, y)].neighbours : 0;
@@ -141,6 +162,7 @@ public:
         }
         return neighbourList;
     }
+
 
     void resize(int newWidth, int newHeight) {
         newWidth = min(max(newWidth, MIN_W), MAX_W);
@@ -419,7 +441,7 @@ uint32_t lcg(uint32_t seed) {return seed * 214013 + 2531011;}
 
 uint32_t reverseLcg(uint32_t seed) {return (seed - 2531011) * 3115528533;}
 
-tuple<uint32_t, uint32_t> getLcgConsts(int steps) {
+Affine getLcgConsts(int steps) {
     uint32_t mult = 1, add = 0, a, b, n;
     if(steps >= 0) { // (...(((x * 214013) + 2531011) * 214013 + ...) = x*214013^s + 2531011*sum_i(214013^(s-1-i)) 
         a = 214013;
@@ -440,13 +462,15 @@ tuple<uint32_t, uint32_t> getLcgConsts(int steps) {
         a = a*a;
         n = n >> 1;
     }
-    return make_tuple(add, mult);
+    Affine out;
+    out.add = add;
+    out.mult = mult;
+    return out;
 }
 
 uint32_t lcgWrapper(uint32_t seed, int steps) {
-    uint32_t mult, add;
-    tie(add, mult) = getLcgConsts(steps);
-    return (seed * mult) + add;
+    Affine affine = getLcgConsts(steps);
+    return (seed * affine.mult) + affine.add;
 }
 
 int getLcgSteps(uint32_t start, uint32_t end) {
@@ -519,6 +543,7 @@ Map generateCandidateTiles(Map map, vector<Tile>& candidateTiles) {
     int i = 0, dx, dy;
     vector<Tile> neighbours;
     Tile start = candidateTiles[0];
+    out.set(start.x, start.y, true);
     while (i < candidateTiles.size())
     {
         neighbours = map.getNeighbours(candidateTiles[i].x, candidateTiles[i].y);
@@ -539,6 +564,228 @@ Map generateCandidateTiles(Map map, vector<Tile>& candidateTiles) {
     }
     return out;
 }
+
+void MapToBurnRNGStepLUT(vector<Tile> candidateTiles, Map candidateMap, Map valMap, array<Affine, 32768>& transition3, array<Affine, 32768>& transition4) {
+    int tileStateSize, tempX, tempY, area3Steps, area4Steps, x = 0, y = 0, arrInd = 0;
+    int size = candidateTiles.size() - 1;
+    float f, fsize = size;
+    uint32_t hexValueMin, hexValueMax;
+    Tile corner;
+
+    for(int ind = 0; ind < size; ind++) {
+        corner = candidateTiles[ind];
+
+        f = (ind + fsize)/fsize;
+        memcpy(&hexValueMin, &f, sizeof(hexValueMin));
+        hexValueMin = ((hexValueMin & 0x7fff00) >> 8);
+
+        f = (ind + fsize + 1)/fsize;
+        memcpy(&hexValueMax, &f, sizeof(hexValueMax));
+        hexValueMax = ((hexValueMax & 0x7fff00) >> 8);
+        if(hexValueMax == 0) {
+            hexValueMax = 32768;
+        }
+
+        tileStateSize = hexValueMax - hexValueMin;
+
+        // count when area check fails
+        y = 0;
+        while (y < (myAreaMaxSize-1)) {   // x,y in correct order?
+            x = 0;
+            while (x < (myAreaMaxSize-1)) {
+                tempX = corner.x + x;
+                tempY = corner.y - y;
+                if(!candidateMap.isOn(tempX, tempY)) { // use byte array instead
+                    area4Steps = y*(myAreaMaxSize-1) + x;
+                    if((y < myAreaMinSize) && (x < myAreaMinSize)) {
+                        area3Steps = y*myAreaMinSize + x;
+                        goto area_failed;
+                    } else {
+                        if (x >= myAreaMinSize) {
+                            y++;
+                        }
+                        goto restOf3Size;
+                    }
+
+                }
+                // lcg step taken here
+                if(!valMap.isOn(tempX, tempY)) { // use byte array instead
+                    area4Steps = y*(myAreaMaxSize-1) + x + 1;
+                    if((y < myAreaMinSize) && (x < myAreaMinSize)) {
+                        area3Steps = y*myAreaMinSize + x + 1;
+                        goto area_failed;
+                    } else {
+                        if (x >= myAreaMinSize) {
+                            y++;
+                        }
+                        goto restOf3Size;
+                    }
+
+                }
+                x++;
+            }
+            y++;
+        }
+        area3Steps = 9;
+        area4Steps = 16; // add number to list
+        goto area_failed;
+
+        restOf3Size:
+        while (y < myAreaMinSize) {   // x,y in correct order?
+            x = 0;
+            while (x < myAreaMinSize) {
+                tempX = corner.x + x;
+                tempY = corner.y - y;
+                if(!candidateMap.isOn(tempX, tempY)) {
+                    area3Steps = y*myAreaMinSize + x;
+                    goto area_failed;
+                }
+                // lcg step taken here;
+                if(!valMap.isOn(tempX, tempY)) {
+                    area3Steps = y*myAreaMinSize + x + 1;
+                    goto area_failed;
+                }
+                x++;
+            }
+            y++;
+        }
+        area3Steps = 9;
+
+        area_failed:
+
+	    fill(transition3.begin() + arrInd, transition3.begin() + arrInd + tileStateSize, getLcgConsts(area3Steps + 1));
+	    fill(transition4.begin() + arrInd, transition4.begin() + arrInd + tileStateSize, getLcgConsts(area4Steps + 1));
+	    arrInd += tileStateSize;
+    }
+}
+
+void MapToBurnRNGStepLUTX(vector<Tile> candidateTiles, Map candidateMap, Map valMap, Tile startingPos, array<Affine, 32768>& transition3, array<Affine, 32768>& transition4) {
+    int tileStateSize, tempX, tempY, area3Steps, area4Steps, x = 0, y = 0, arrInd = 0;
+    float dx, dy, d2;
+    int size = candidateTiles.size() - 1;
+    float f, fsize = size;
+    uint32_t hexValueMin, hexValueMax;
+    Tile corner;
+    Affine zero;
+    zero.add = 0;
+    bool succ3, succ4;
+
+    for(int ind = 0; ind < size; ind++) {
+        succ3 = false;
+        succ4 = false;
+        corner = candidateTiles[ind];
+
+        f = (ind + fsize)/fsize;
+        memcpy(&hexValueMin, &f, sizeof(hexValueMin));
+        hexValueMin = ((hexValueMin & 0x7fff00) >> 8);
+
+        f = (ind + fsize + 1)/fsize;
+        memcpy(&hexValueMax, &f, sizeof(hexValueMax));
+        hexValueMax = ((hexValueMax & 0x7fff00) >> 8);
+        if(hexValueMax == 0) {
+            hexValueMax = 32768;
+        }
+
+        tileStateSize = hexValueMax - hexValueMin;
+
+        // count when area check fails
+        x = 0;
+        while (x < (myAreaMaxSize-1)) {   // x,y in correct order?
+            y = 0;
+            while (y < (myAreaMaxSize-1)) {
+                tempX = corner.x + x;
+                tempY = corner.y - y;
+                if(!candidateMap.isOn(tempX, tempY)) { // use byte array instead
+                    area4Steps = x*(myAreaMaxSize-1) + y;
+                    if((y < myAreaMinSize) && (x < myAreaMinSize)) {
+                        area3Steps = x*myAreaMinSize + y;
+                        goto area_failed;
+                    } else {
+                        if (y >= myAreaMinSize) {
+                            x++;
+                        }
+                        goto restOf3Size;
+                    }
+
+                }
+
+                // lcg step taken here
+
+                if(!valMap.isOn(tempX, tempY)) { // use byte array instead
+                    area4Steps = x*(myAreaMaxSize-1) + y + 1;
+                    if((y < myAreaMinSize) && (x < myAreaMinSize)) {
+                        area3Steps = x*myAreaMinSize + y + 1;
+                        goto area_failed;
+                    } else {
+                        if (y >= myAreaMinSize) {
+                            x++;
+                        }
+                        goto restOf3Size;
+                    }
+
+                }
+                y++;
+            }
+            x++;
+        }
+
+        area3Steps = 9;
+        dx = corner.x + 1 - startingPos.x;
+        dy = corner.y - 1 - startingPos.y;
+        d2 = dx*dx + dy*dy;
+        succ3 = (myMinDistanceBetweenPoints*myMinDistanceBetweenPoints/4 < d2) && (d2 < myMaxDistanceBetweenPoints*myMaxDistanceBetweenPoints/4);
+
+        area4Steps = 16;
+        dx = corner.x + 1.5 - startingPos.x;
+        dy = corner.y - 1.5 - startingPos.y;
+        d2 = dx*dx + dy*dy;
+        succ4 = (myMinDistanceBetweenPoints*myMinDistanceBetweenPoints/4 < d2) && (d2 < myMaxDistanceBetweenPoints*myMaxDistanceBetweenPoints/4);
+        goto area_failed;
+
+
+        restOf3Size:
+        while (x < myAreaMinSize) {   // x,y in correct order?
+            y = 0;
+            while (y < myAreaMinSize) {
+                tempX = corner.x + x;
+                tempY = corner.y - y;
+                if(!candidateMap.isOn(tempX, tempY)) {
+                    area3Steps = x*myAreaMinSize + y;
+                    goto area_failed;
+                }
+                // lcg step taken here;
+                if(!valMap.isOn(tempX, tempY)) {
+                    area3Steps = x*myAreaMinSize + y + 1;
+                    goto area_failed;
+                }
+                y++;
+            }
+            x++;
+        }
+
+        area3Steps = 9;
+        dx = corner.x + 1 - startingPos.x;
+        dy = corner.y - 1 - startingPos.y;
+        d2 = dx*dx + dy*dy;
+        succ3 = (myMinDistanceBetweenPoints*myMinDistanceBetweenPoints/4 < d2) && (d2 < myMaxDistanceBetweenPoints*myMaxDistanceBetweenPoints/4);
+
+
+        area_failed:
+        if(succ3) {
+            fill(transition3.begin() + arrInd, transition3.begin() + arrInd + tileStateSize, zero);
+        } else {
+	        fill(transition3.begin() + arrInd, transition3.begin() + arrInd + tileStateSize, getLcgConsts(area3Steps + 1));
+        }
+
+        if (succ4) {
+            fill(transition4.begin() + arrInd, transition4.begin() + arrInd + tileStateSize, zero);
+        } else {
+	        fill(transition4.begin() + arrInd, transition4.begin() + arrInd + tileStateSize, getLcgConsts(area4Steps + 1));
+        }
+	    arrInd += tileStateSize;
+    }
+}
+
 
 int validateArea(vector<Tile>& candidateTiles, uint32_t rngState, Tile bottomleft, int randomAreaSize, vector<int> invIndex) {
     int tempX, tempY, tempIndex;
@@ -563,7 +810,7 @@ int validateArea(vector<Tile>& candidateTiles, uint32_t rngState, Tile bottomlef
             }
         }
     }
-    return 1;
+    return 1; // return the Tile index?/pos? of center not 1
 }
 
 int generateCandidateArea (vector<Tile>& outWaypoints, vector<int> invIndex, vector<Tile>& candidateTiles, uint32_t& rngState, int randomAreaSize) {
@@ -585,8 +832,8 @@ int generateCandidateArea (vector<Tile>& outWaypoints, vector<int> invIndex, vec
                 d2 = dx*dx + dy*dy;
                 if((myMinDistanceBetweenPoints*myMinDistanceBetweenPoints < d2) && (d2 < myMaxDistanceBetweenPoints*myMaxDistanceBetweenPoints)) {
                     outWaypoints.push_back(randomTile);
+                    return 1;
                 }
-                return 1;
             }
             consecutiveSkips += 1;
         }
@@ -605,7 +852,7 @@ int generateWaypoints (vector<Tile>& outWaypoints, vector<int> invIndex, vector<
             if (myDoNotEndInCover && (numOfAreas == (myNumOfAreas - 1))) {
                 randomAreaSize = 3;
             }
-            if (generateCandidateArea(outWaypoints, invIndex, candidateTiles, rngState, randomAreaSize) != 0) { // check if valid area generated
+            if (generateCandidateArea(outWaypoints, invIndex, candidateTiles, rngState, randomAreaSize) == 0) { // check if valid area generated
                 consecutiveSkips += 1;
             }
             else {
@@ -663,16 +910,72 @@ int accurateBurnSim(Map map, vector<int> invIndex, vector<Tile>& out, uint32_t r
     return 0;
 }
 
+
+tuple<vector<uint32_t>, vector<uint32_t>> getFirstArea (Tile startingPos, Map goal3, Map goal4, vector<Tile>& candidateTiles, Map candidateMap, Map valMap) {
+    vector<uint32_t> seeds = {};
+    vector<uint32_t> tempStates = {};
+    
+    int d2, dx, dy, dAreaSize = myAreaMaxSize - myAreaMinSize;
+    int size = candidateTiles.size()-1;
+    float rngVal;
+    Tile randomTile;
+    Affine affine;
+
+    uint32_t tempState, stateInd;
+
+    array<Affine, 32768> transition3;
+    array<Affine, 32768> transition4;
+    MapToBurnRNGStepLUTX(candidateTiles, candidateMap, valMap, startingPos, transition3, transition4);
+
+    uint32_t i = 0;
+    while(i < u31) {
+        tempState = i;
+        tempState = lcg(tempState);
+        for(int consecutiveSkipsA = 0; consecutiveSkipsA <= myMaxConsecutiveSkips; consecutiveSkipsA++) {
+            if((tempState & 0x7fffffff) < 1073741824) {
+                tempState = lcg(tempState);
+                for (int consecutiveSkips = 0; consecutiveSkips < myMaxConsecutiveSkips; consecutiveSkips++) {
+                    stateInd = (tempState >> 16) & 0x7fff;
+                    affine = transition3[stateInd];
+                    if (affine.add == 0) {
+                        randomTile = candidateTiles[stateToValue(tempState)*size - size];
+                        tempState = tempState * 1744563881 + 2006221698; // 10 steps
+                        if(goal3.isOn(randomTile.x, randomTile.y)) {
+                            seeds.push_back(i);
+                            tempStates.push_back(tempState);
+                        }
+                        goto area_done;
+                    } else { 
+                        tempState = tempState * affine.mult + affine.add;
+                    }
+                }
+            } else {
+                tempState = lcg(tempState);
+                for (int consecutiveSkips = 0; consecutiveSkips < myMaxConsecutiveSkips; consecutiveSkips++) {
+                    stateInd = (tempState >> 16) & 0x7fff;
+                    affine = transition4[stateInd];
+                    if (affine.add == 0) {
+                        randomTile = candidateTiles[stateToValue(tempState)*size - size];
+                        tempState = tempState * -389939651 + 586225427; // 17 steps
+                        if(goal4.isOn(randomTile.x, randomTile.y)) {
+                            seeds.push_back(i);
+                            tempStates.push_back(tempState);
+                        }
+                        goto area_done;
+                    } else { 
+                        tempState = tempState * affine.mult + affine.add;
+                    }
+                }
+            }
+        }
+
+        area_done:
+        i++;
+    }
+    return {seeds, tempStates};
+}
+
 tuple<vector<uint32_t>, vector<uint32_t>> fastBurnSim(vector<uint32_t> states, vector<Tile> candidateTiles, Map candidateMap, Map valMap, Map valMapFB, tuple<float, float> goalVals) {
-    // This function assumes main waypoint generation will always fail (for validateArea valMap determines the exact iteration)
-    // This function does not handle Special Bucklers
-
-
-    // for main method: does you own char block area?
-    // subsequent? duplicates get skipped
-    // does candidate tileset change during process?
-    // tornado skipped?
-
     uint32_t tempState, tempStateStart;
     int consecutiveSkipsC, numOfPoints, tempX, tempY;
     float rngVal;
@@ -681,104 +984,9 @@ tuple<vector<uint32_t>, vector<uint32_t>> fastBurnSim(vector<uint32_t> states, v
     Tile rngTile;
 
 
-    Tile corner;
-    vector<int> stateToSteps3, stateToSteps4;
-    stateToSteps3.reserve(32768);
-    stateToSteps4.reserve(32768);
-    int tileStateSize;
-    int area3Steps, area4Steps;
-    uint32_t hexValueMin, hexValueMax;
-    float f;    
-    int x = 0, y = 0;
-
-    // Create RNG step lookup table
-    for(int ind = 0; ind < size; ind++) { // make sure candidateTiles also includes the 0 element for this
-        corner = candidateTiles[ind];
-
-
-
-        f = (ind + fsize)/fsize;
-        memcpy(&hexValueMin, &f, sizeof(hexValueMin));
-        hexValueMin = ((hexValueMin & 0x7fff00) >> 8);
-
-        f = (ind + fsize + 1)/fsize;
-        memcpy(&hexValueMax, &f, sizeof(hexValueMax));
-        hexValueMax = ((hexValueMax & 0x7fff00) >> 8);
-        if(hexValueMax == 0) {
-            hexValueMax = 32768;
-        }
-
-        tileStateSize = hexValueMax - hexValueMin;
-
-        // count when area check fails
-        y = 0;
-        while (y < (myAreaMaxSize-1)) {   // x,y in correct order?
-            x = 0;
-            while (x < (myAreaMaxSize-1)) {
-                tempX = corner.x + x;
-                tempY = corner.y + y;
-                if(!candidateMap.isOn(tempX, tempY)) { // use byte array instead
-                    area4Steps = y*(myAreaMaxSize-1) + x;
-                    if((y < myAreaMinSize) && (x < myAreaMinSize)) {
-                        area3Steps = y*myAreaMinSize + x;
-                        goto area_failed;
-                    } else {
-                        if (x >= myAreaMinSize) {
-                            y++;
-                        }
-                        goto restOf3Size;
-                    }
-
-                }
-                // lcg step taken here;
-                if(!valMap.isOn(tempX, tempY)) { // use byte array instead
-                    area4Steps = y*(myAreaMaxSize-1) + x + 1;
-                    if((y < myAreaMinSize) && (x < myAreaMinSize)) {
-                        area3Steps = y*myAreaMinSize + x + 1;
-                        goto area_failed;
-                    } else {
-                        if (x >= myAreaMinSize) {
-                            y++;
-                        }
-                        goto restOf3Size;
-                    }
-
-                }
-                x++;
-            }
-            y++;
-        }
-        area3Steps = 9;
-        area4Steps = 16; // add number to list
-        goto area_failed;
-
-        restOf3Size:
-        while (y < myAreaMinSize) {   // x,y in correct order?
-            x = 0;
-            while (x < myAreaMinSize) {
-                tempX = corner.x + x;
-                tempY = corner.y + y;
-                if(!candidateMap.isOn(tempX, tempY)) {
-                    area3Steps = y*myAreaMinSize + x;
-                    goto area_failed;
-                }
-                // lcg step taken here;
-                if(!valMap.isOn(tempX, tempY)) {
-                    area3Steps = y*myAreaMinSize + x + 1;
-                    goto area_failed;
-                }
-                x++;
-            }
-            y++;
-        }
-        area3Steps = 9;
-
-        area_failed:
-
-        stateToSteps3.insert(stateToSteps3.end(), tileStateSize, area3Steps);
-        stateToSteps4.insert(stateToSteps4.end(), tileStateSize, area4Steps);
-    } 
-
+    array<Affine, 32768> transition3;
+    array<Affine, 32768> transition4;
+    MapToBurnRNGStepLUT(candidateTiles, candidateMap, valMap, transition3, transition4);
 
 
     bool isEmpty = states.empty();
@@ -797,111 +1005,37 @@ tuple<vector<uint32_t>, vector<uint32_t>> fastBurnSim(vector<uint32_t> states, v
 
     vector<uint32_t> seeds = {};
     vector<uint32_t> tempStates = {};
+    Affine affine;
     seeds.reserve((maxState - minState)*limit);
     tempStates.reserve((maxState - minState)*limit);
+    vector<uint32_t> stateToBigStep;
+    stateToBigStep.reserve(limit);
 
+    // Big LUT
+    for(uint32_t i = 0; i < u31; i++) {
+	    tempState = i * 214013 + 2531011;
+        if((i & 0x7fffffff) < 1073741824) {
+            for(int consecutiveSkipsB = 0; consecutiveSkipsB < myMaxConsecutiveSkips; consecutiveSkipsB++) {
+                stateInd = (tempState >> 16) & 0x7fff;
+                affine = transition3[stateInd];
+		        tempState = tempState * affine.mult + affine.add;
+            }
+        } else {
+            for(int consecutiveSkipsB = 0; consecutiveSkipsB < myMaxConsecutiveSkips; consecutiveSkipsB++) {
+                stateInd = (tempState >> 16) & 0x7fff;  
+                affine = transition4[stateInd];
+		        tempState = tempState * affine.mult + affine.add;
+            }
+        }
+	    stateToBigStep.push_back(tempState);
+    }
 
+    // Progress RNG
     for(uint32_t i = 0; i < limit; i++) {
         tempStateStart = (isEmpty ? i : states[i]); // split cases outside of for loop
-        tempState = tempStateStart;
-        //Progress RNG state by going through main waypoint generation
+        tempState = tempStateStart * 214013 + 2531011;
         for(int consecutiveSkipsA = 0; consecutiveSkipsA <= myMaxConsecutiveSkips; consecutiveSkipsA++) {
-            tempState = lcg(tempState);
-
-            if(((tempState & 0x7fffffff) < 1073741824 ? 3 : 4) == 3) {
-                for(int consecutiveSkipsB = 0; consecutiveSkipsB < myMaxConsecutiveSkips; consecutiveSkipsB++) {
-                    tempState = lcg(tempState);
-                    stateInd = (tempState >> 16) & 0x7fff;
-                    
-                    switch (stateToSteps3[stateInd])
-                    {
-                    case 1:
-                        tempState = tempState * 214013 + 2531011;
-                        break;
-                    case 2:
-                        tempState = tempState * 2851891209 + 505908858;
-                        break;
-                    case 3:
-                        tempState = tempState * 1170746341 + 3539360597;
-                        break;
-                    case 4:
-                        tempState = tempState * 3724496977 + 159719620;
-                        break;
-                    case 5:
-                        tempState = tempState * 675975949 + 2727824503;
-                        break;
-                    case 6:
-                        tempState = tempState * 257342169 + 773150046;
-                        break;
-                    case 7:
-                        tempState = tempState * 203977589 + 548247209;
-                        break;
-                    case 8:
-                        tempState = tempState * 4103125409 + 2115878600;
-                        break;
-                    case 9:
-                        tempState = tempState * 3229587229 + 2832368235;
-                        break;
-                    }
-                }
-            } else {
-                for(int consecutiveSkipsB = 0; consecutiveSkipsB < myMaxConsecutiveSkips; consecutiveSkipsB++) {
-                    tempState = lcg(tempState);
-                    stateInd = (tempState >> 16) & 0x7fff;
-                    
-                    switch (stateToSteps4[stateInd])
-                    {
-                    case 1:
-                        tempState = tempState * 214013 + 2531011;
-                        break;
-                    case 2:
-                        tempState = tempState * 2851891209 + 505908858;
-                        break;
-                    case 3:
-                        tempState = tempState * 1170746341 + 3539360597;
-                        break;
-                    case 4:
-                        tempState = tempState * 3724496977 + 159719620;
-                        break;
-                    case 5:
-                        tempState = tempState * 675975949 + 2727824503;
-                        break;
-                    case 6:
-                        tempState = tempState * 257342169 + 773150046;
-                        break;
-                    case 7:
-                        tempState = tempState * 203977589 + 548247209;
-                        break;
-                    case 8:
-                        tempState = tempState * 4103125409 + 2115878600;
-                        break;
-                    case 9:
-                        tempState = tempState * 3229587229 + 2832368235;
-                        break;
-                    case 10:
-                        tempState = tempState * 1744563881 + 2006221698;
-                        break;
-                    case 11:
-                        tempState = tempState * 2137790469 + 2531105853;
-                        break;
-                    case 12:
-                        tempState = tempState * 2150370289 + 3989110284;
-                        break;
-                    case 13:
-                        tempState = tempState * 1450893357 + 2222380191;
-                        break;
-                    case 14:
-                        tempState = tempState * 1084380025 + 2165923046;
-                        break;
-                    case 15:
-                        tempState = tempState * 1454385557 + 1345953809;
-                        break;
-                    case 16:
-                        tempState = tempState * 1136269121 + 1043415696;
-                        break;
-                    }
-                }
-            }
+	        tempState = stateToBigStep[tempState & 0x7fffffff];
         }
 
 
@@ -919,8 +1053,8 @@ tuple<vector<uint32_t>, vector<uint32_t>> fastBurnSim(vector<uint32_t> states, v
                 break;
             }
 
-            rngTile = candidateTiles[int(rngVal*size - size)]; // abvoid value calc if possible
-             // check for valid selection (if valid interrupt, since we want to control the first waypoint)
+            rngTile = candidateTiles[int(rngVal*size - size)]; // avoid value calc if possible
+            // check for valid selection (if valid interrupt, since we want to control the first waypoint)
             if(valMapFB.isOn(rngTile.x, rngTile.y)) { // byte array for valid indices instead
                 break;
             }
@@ -1085,6 +1219,33 @@ string valueToCoverEffect(float value) {
 }
 
 
+
+
+uint32_t printState(uint32_t state, int iteration = 0, int stepSize = 1, bool showRow = true, bool showHex = false, bool showVal = true, int minDmg = -1, int maxDmg = -1, int baseDmg = -1, vector<int> candSizes = {-1}) {
+    uint32_t temp = state;
+    int candSize = candSizes.size();
+    float val;
+    if (iteration < 0) {stepSize = -stepSize;}
+    iteration *= stepSize;
+    for(int j = 0; abs(j) <= iteration; j += stepSize) {
+        if(showRow) {cout << j << ":  ";}
+        cout << setw(11) << temp;
+        val = stateToValue(temp);
+        if (showHex) {cout << " (hex: 0x" << hex << uppercase << temp << dec << ")";}
+        if(showVal) {cout << " (value: " << val << ")";}
+        if(minDmg != -1) {
+            cout << " (dmg: " << valueToDmg(val, minDmg, maxDmg, baseDmg) << ")"; 
+        }
+        if (candSizes[j%candSize] != -1) {
+            cout << " (tile: " << int(val*candSizes[j%candSize] - candSizes[j%candSize]) << ")"; 
+        }
+        cout << endl;
+        temp = lcgWrapper(temp, stepSize);
+    }
+    cout << endl;
+    return temp;
+}
+
 void printMap(Map map, vector<Tile>& candidateTiles) {
     int temp;
     if (candidateTiles.size() == 0) {
@@ -1109,47 +1270,20 @@ void printMap(Map map, vector<Tile>& candidateTiles) {
                 }
             }
             cout << '\n';
-        }   
+        }
     }
 }
-
-uint32_t printState(uint32_t state, int iteration = 0, int stepSize = 1, bool showRow = true, bool showHex = false, bool showVal = true, int minDmg = -1, int maxDmg = -1, int baseDmg = -1, vector<int> candSizes = {-1}) {
-    uint32_t temp = state;
-    int candSize = candSizes.size();
-    float val;
-    if (iteration < 0) {stepSize = -stepSize;}
-    iteration *= stepSize;
-    for(int j = 0; abs(j) <= iteration; j += stepSize) {
-        if(showRow) {cout << j << ":  ";}
-        cout << setw(11) << int(temp);
-        val = stateToValue(temp);
-        if (showHex) {cout << " (hex: 0x" << hex << uppercase << temp << dec << ")";}
-        if(showVal) {cout << " (value: " << val << ")";}
-        if(minDmg != -1) {
-            cout << " (dmg: " << valueToDmg(val, minDmg, maxDmg, baseDmg) << ")"; 
-        }
-        if (candSizes[j%candSize] != -1) {
-            cout << " (tile: " << int(val*(candSizes[j%candSize]-2) - (candSizes[j%candSize]-2))+3 << ")"; 
-        }
-        cout << endl;
-        temp = lcgWrapper(temp, stepSize);
-    }
-    cout << endl;
-    return temp;
-}
-
 
 void searchNextGoal(uint32_t state, vector<uint32_t> sortedNormedGoalStates, int Mstepsize = 1, int lookAhead = 2147483647) {
     uint32_t temp = (state < 2147483647) ? state : state-2147483648;
     vector<uint32_t, allocator<uint32_t>>::iterator start = sortedNormedGoalStates.begin();
     vector<uint32_t, allocator<uint32_t>>::iterator end = sortedNormedGoalStates.end();
-    int lcgAdd, lcgMult;
-    tie(lcgAdd, lcgMult) = getLcgConsts(Mstepsize);
+    Affine affine = getLcgConsts(Mstepsize);
     
     int j = 0;
     while(!binary_search(start, end, temp)) {
         j++;
-        temp = temp*lcgMult + lcgAdd;
+        temp = temp*affine.mult + affine.add;
         temp = (temp < 2147483648) ? temp : temp-2147483648; 
     }
     cout << endl << j << " (" << j*Mstepsize << "): " << temp << endl;
@@ -1325,7 +1459,9 @@ vector<uint32_t> searchStates(vector<uint32_t>& states, int minStepSize = 1, int
     if(abs(maxStepSize) < abs(minStepSize)) {maxStepSize = minStepSize;}
     tie(minMant, maxMant) = valueToMantissa(vals);
     tie(exMinMant, exMaxMant) = valueToMantissa(exVals);
-    tie(lcgAdd, lcgMult) = getLcgConsts(minStepSize);
+    Affine affine = getLcgConsts(minStepSize);
+    lcgMult = affine.mult;
+    lcgAdd = affine.add;
 
     if(routeMode) {
         minMant += 0x100;
@@ -1448,7 +1584,8 @@ vector<uint32_t> stateFinder(vector<uint32_t> initState = {}, int minStepSize = 
     tuple<float, float> hitCrit, dmg;
     string strIn;
     Weapon weapon;
-    uint32_t temp = 4294967296, lcgAdd, lcgMult;
+    uint32_t temp = 4294967296;
+    Affine affine;
     char t;
     int mode = 0;
 
@@ -1517,8 +1654,8 @@ vector<uint32_t> stateFinder(vector<uint32_t> initState = {}, int minStepSize = 
             temp = states.size();
             cout << "States in " << minStepSize << " steps: " << endl;
             for (uint32_t state : states) {
-                tie(lcgAdd, lcgMult) = getLcgConsts(minStepSize);
-                cout << int(state*lcgMult + lcgAdd) << endl;
+                affine = getLcgConsts(minStepSize);
+                cout << int(state*affine.mult + affine.add) << endl;
             }
             cout << endl;
             cout << endl;
@@ -1579,8 +1716,8 @@ vector<uint32_t> stateFinder(vector<uint32_t> initState = {}, int minStepSize = 
         if (temp > 0 && temp <= 10) {
             cout << "States in " << minStepSize << " steps: " << endl;
             for (uint32_t state : states) {
-                tie(lcgAdd, lcgMult) = getLcgConsts(minStepSize);
-                cout << int(state*lcgMult + lcgAdd) << endl;
+                affine = getLcgConsts(minStepSize);
+                cout << int(state*affine.mult + affine.add) << endl;
             }
             cout << endl;
         }
@@ -1595,17 +1732,89 @@ int main() {
     vector<uint32_t> bounce50, bounce05, bounce51, bounce15, bounce52, bounce25, bounce42, bounce24, bounce43, bounce34, bounce44;
     float val;
 
-    Map muc3, m461, m22, valmuc3, valFBmuc3;
-    muc3.load("uc3.grid");
-    muc3.setNeighbours(18, 17, 12);
-    muc3.setNeighbours(19, 17, 7);
-    muc3.setNeighbours(17, 22, 9);
-    muc3.setNeighbours(18, 22, 7);
+    // UC3
+    if(false) {
 
-    valmuc3.load("uc3_val.grid");
-    valFBmuc3.load("uc3_valFB.grid");
+        Map muc3, valmuc3, valFBmuc3;
+        muc3.load("uc3.grid");
+        muc3.setNeighbours(18, 17, 12);
+        muc3.setNeighbours(19, 17, 7);
+        muc3.setNeighbours(18, 22, 9);
+        muc3.setNeighbours(19, 22, 7);
+        muc3.setNeighbours(6, 16, 9);
+        muc3.setNeighbours(6, 17, 14);
+        muc3.setNeighbours(6, 22, 11);
+        muc3.setNeighbours(6, 23, 12);
 
-    if(true) {
+        valmuc3.load("uc3_val.grid");
+        valFBmuc3.load("uc3_valFB.grid");
+
+        Tile RabbidLuigi;
+        RabbidLuigi.x = 18;
+        RabbidLuigi.y = 17;
+
+        Tile Luigi;
+        Luigi.x = 21;
+        Luigi.y = 14;
+
+        Tile Ziggy;
+        Ziggy.x = 22;
+        Ziggy.y = 15;
+
+
+        vector<Tile> candidateTilesRL = {RabbidLuigi};
+        vector<int> invIndexRL = {102, 139, 225, 153, 184, 10, 16, 24, 35, 49, 67, 84, 39, 52, 71, 89, 101, 113};
+        vector<int> invIndexRLFB = {102, 139, 225, 153, 184};
+        Map candidateMapRL = generateCandidateTiles(muc3, candidateTilesRL);
+        tuple<float, float> rl = make_tuple(1.808, 1.811);
+        
+        vector<Tile> candidateTilesL = {Luigi};
+        vector<int> invIndexL = {8, 124, 40, 153, 28, 21, 19, 25, 31, 37, 70, 60, 72, 87, 76, 91};
+        vector<int> invIndexLFB = {8, 124, 40, 153};
+        Map candidateMapL = generateCandidateTiles(muc3, candidateTilesL);
+        tuple<float, float> l = make_tuple(1.5643, 1.5644);
+
+        int rlSize = candidateTilesRL.size();
+        cout << endl << "Rabbid Luigi: " << rlSize-1 << endl;
+        //printMap(muc3, candidateTilesRL);
+        int lSize = candidateTilesL.size();
+        cout << endl << "Luigi: " << lSize-1 << endl;
+        //printMap(muc3, candidateTilesL);
+
+        vector<Tile> candidateTilesZ = {Ziggy};
+        Map candidateMapZ = generateCandidateTiles(muc3, candidateTilesZ);
+        cout << endl << "Ziggy: " << candidateTilesZ.size()-1 << endl;
+        //printMap(muc3, candidateTilesZ);
+
+        //tie(states, tempStates) = fastBurnSim(states, candidateTilesRL, candidateMapRL, valmuc3, valFBmuc3, rl);
+        
+        states = searchStates(states, 1, 0, rl, make_tuple(0, 0), false);
+        states = searchStates(states, 2, 0, l, make_tuple(0, 0), false);
+    }
+
+    // 4-3-2
+    if (false) {
+        Map m43;
+        m43.load("4-3-2.grid");
+        Tile Buckler;
+        Buckler.x = 30;
+        Buckler.y = 10;
+        Tile Lu3;
+        Lu3.x = 31;
+        Lu3.y = 9;
+        vector<Tile> candidateTilesBuckler = {Buckler};
+        Map candidateMapBuckler = generateCandidateTiles(m43, candidateTilesBuckler);
+        cout << endl << "Buckler: " << candidateTilesBuckler.size()-1 << endl;
+        //printMap(m43, candidateTilesBuckler);
+        vector<Tile> candidateTilesLu3 = {Lu3};
+        Map candidateMapLu3 = generateCandidateTiles(m43, candidateTilesLu3);
+        cout << endl << "Luigi: " << candidateTilesLu3.size()-1 << endl;
+        //printMap(m43, candidateTilesLu3);
+    }
+
+    // 4-6-1
+    if(false) {
+        Map m461;
         m461.load("4-6-1.grid");
         m461.setNeighbours(15, 3, 12);
         m461.setNeighbours(15, 4, 13);
@@ -1664,82 +1873,35 @@ int main() {
         m461.setNeighbours(10, 26, 13);
         m461.setNeighbours(10, 27, 13);
         m461.setNeighbours(10, 28, 9);
+
+        Tile Spawny;
+        Spawny.x = 14;
+        Spawny.y = 13;
+        vector<Tile> candidateTilesS = {Spawny};
+        Map candidateMapS = generateCandidateTiles(m461, candidateTilesS);
+        cout << endl << "Spawny: " << candidateTilesS.size()-1 << endl;
+        //printMap(m461, candidateTilesS);
     }
 
-    Tile RabbidLuigi;
-    RabbidLuigi.x = 18;
-    RabbidLuigi.y = 17;
+    // 2-2-1
+    if(true) {
+        Map m22, m22g3, m22g4, m22val, m22map;
+        m22.load("2-2.grid");
+        m22g3.load("2-2g3.grid");
+        m22g4.load("2-2g4.grid");
+        m22val.load("2-2val.grid");
+        m22map.load("2-2map.grid"); //all tiles on map, unless out of bounds
+        Tile Mario;
+        Mario.x = 23;
+        Mario.y = 11;
+        vector<Tile> candidateTilesM = {Mario};
+        Map candidateMapM = generateCandidateTiles(m22, candidateTilesM);
 
-    Tile Luigi;
-    Luigi.x = 21;
-    Luigi.y = 14;
-
-
-    vector<Tile> candidateTilesRL = {RabbidLuigi};
-    vector<int> invIndexRL = {102, 139, 225, 153, 184, 10, 16, 24, 35, 49, 67, 84, 39, 52, 71, 89, 101, 113};
-    vector<int> invIndexRLFB = {102, 139, 225, 153, 184};
-    Map candidateMapRL = generateCandidateTiles(muc3, candidateTilesRL);
-    tuple<float, float> rl = make_tuple(1.0039, 1.004);
-    
-    vector<Tile> candidateTilesL = {Luigi};
-    vector<int> invIndexL = {8, 124, 40, 153, 28, 21, 19, 25, 31, 37, 70, 60, 72, 87, 76, 91};
-    vector<int> invIndexLFB = {8, 124, 40, 153};
-    Map candidateMapL = generateCandidateTiles(muc3, candidateTilesL);
-    tuple<float, float> l = make_tuple(1.5643, 1.5644);
-
-    int rlSize = candidateTilesRL.size();
-    cout << endl << "Rabbid Luigi: " << rlSize << endl;
-    printMap(muc3, candidateTilesRL);
-    int lSize = candidateTilesL.size();
-    cout << endl << "Luigi: " << lSize << endl;
-    printMap(muc3, candidateTilesL);
-
-    tie(states, tempStates) = fastBurnSim(states, candidateTilesRL, candidateMapRL, valmuc3, valFBmuc3, rl);
-
-    states = searchStates(states, 1, 0, rl, make_tuple(0, 0), false);
-    states = searchStates(states, 2, 0, l, make_tuple(0, 0), false);
-
-    temp = -334585697;
-    printState(temp, getLcgSteps(temp, 1125108890));
-
-    cout << states.size() << endl;
-    for(uint32_t state : states) {
-        //printState(lcgWrapper(state, -3), 4, 1, true, true);
+        cout << endl << "Mario: " << candidateTilesM.size()-1 << endl;
+        printMap(m22, candidateTilesM);
+        cout << endl;
+        getFirstArea(Mario, m22g3, m22g4, candidateTilesM, m22map, m22val); 
     }
-
-    return 1;
-
-    // RL: 1/254 = 0.0039370078740157
-    //  *208: 1.8071 =205/254, 1.811 =206/254
-    //  207: 1.80698
-    //  209: 1.81104
-    //    0: 8517862 (value: 1.00394)
-    //    1: 10174876 (value: 1.00473)
-    //    2: 21433483 (value: 1.00998)
-    //   27: -1917279469 (value: 1.10718)
-    //   94: 765002277 (value: 1.35623)
-    //  148: -942392074 (value: 1.56116)
-    //  149: -935412080 (value: 1.56439)
-    //  156: 1267122570 (value: 1.59003)
-    // L: 1/221 = 0.0045248868778281        249-252
-    //  *125: 1.55988, 1.56384, -936229726 (value: 1.56403)
-    //  124: 1.55988
-    //  126: 1.56387; -940253556
-    //  211: 1.95181
-    //  204: -166101650 (value: 1.92264)
-    //  184: 1792256455 (value: 1.83456)
-    //  181: 1.81635
-    //  170: 1534418553 (value: 1.71451)
-    //  134: 1267122570 (value: 1.59003)
-    //  121: -980835552 (value: 1.54324)
-    //  111: -1078116383 (value: 1.49796)
-    //  101: 1.4635
-    //   78: 765002277 (value: 1.35623)
-    //   64: 580089693 (value: 1.27011)
-    //   59: 576482388 (value: 1.26843)
-    //    2: 21456162 (value: 1.00998)
-    //    1: 
- 
 
 
 
@@ -1753,13 +1915,7 @@ int main() {
         states = stateFinder({state});
     }
 
-
-
-    
-
-
-
-    /** 
+    /* 
      * m = 8/per w     c=2m       m = 6/per w
      * 
      * Blaster offset: 38, 34, 24 (20)
@@ -1948,4 +2104,5 @@ int main() {
 
      * 
      */
+
 }
