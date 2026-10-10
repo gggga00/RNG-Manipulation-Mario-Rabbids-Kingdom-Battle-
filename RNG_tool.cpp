@@ -1588,7 +1588,7 @@ string valueToCoverEffect(float value) {
 
 
 
-uint32_t printState(uint32_t state, int iteration = 0, int stepSize = 1, bool showRow = true, bool showAsInt = false, bool showHex = false, bool showVal = true, int minDmg = -1, int maxDmg = -1, int baseDmg = -1, vector<int> candSizes = {-1}) {
+uint32_t printState(uint32_t state, int iteration = 0, int stepSize = 1, bool showRow = true, bool showAsInt = true, bool showHex = false, bool showVal = true, int minDmg = -1, int maxDmg = -1, int baseDmg = -1, vector<int> candSizes = {-1}) {
     uint32_t temp = state;
     int candSize = candSizes.size();
     float val;
@@ -2253,7 +2253,7 @@ int main() {
     }
 
     // 2-2-1
-    if(true) {
+    if(false) {
         Map m22, m22g3, m22g4, m22val, m22map, m22used;
         m22.load("2-2.grid");
         m22g3.load("2-2g3.grid");
@@ -2269,39 +2269,23 @@ int main() {
         Map candidateMapM = generateCandidateTiles(m22, candidateTilesM);
 
 
-/*
-        states = searchStates(states, 1, 0, {1.0, 1.5}, {0, 0}, true);
-        states = searchStates(states, 73, 0, {1.6, 2.0}, {0, 0}, true);
-        
-        tempStates = searchStates(states, -437, 0, {1.0, 2.0}, {0, 0}, true);
-        states = searchStates(states, 98, 0, {1.0, 2.0}, {0, 0}, true);
 
-        tie(start1, end1) = fastBurnSimFirstArea(states, Mario, m22g3, m22g4, candidateTilesM, m22map, m22val);         
-*/
 
-        //cout << lcgWrapper(575475233, -597) << endl;
-        //printState(lcgWrapper(575475233, -535), 550);
-
-        // goal vals: 243/272
         cout << endl << "Mario: " << candidateTilesM.size()-1 << endl;
         printMap(m22, candidateTilesM);
         cout << endl;
 
-        //tie(states, tempStates) = fastBurnSimFirstAreaEmpty(Mario, m22g3, m22g4, candidateTilesM, m22map, m22val); 
-        start1 = LoadVector("2-2StartToFallbackStart");
-        end1 = LoadVector("2-2StartToFallbackEnd");
+        //states = searchStates(states, 1, 0, {1.0, 1.5}, {0, 0}, true);
+        //states = searchStates(states, 73, 0, {1.6, 2.0}, {0, 0}, true);
+        
+        //tempStates = searchStates(states, -437, 0, {1.0, 2.0}, {0, 0}, true);
+        //states = searchStates(states, 98, 0, {1.0, 2.0}, {0, 0}, true);
 
+        //tie(start1, end1) = fastBurnSimFirstArea(states, Mario, m22g3, m22g4, candidateTilesM, m22map, m22val);         
         //tie(start2, end2) = fastBurnSimLastArea(end1, candidateTilesM, m22map, m22val, m22val, m22used, make_tuple(1.0 + 243.0/272.0, 1.0 + 244.0/272.0));
-        start2 = LoadVector("2-2ToFallbackStart");
-        end2 = LoadVector("2-2ToFallbackFakeEnd");
 
-        cout << "Merging..." << endl;
-        tie(states, tempStates) = MergeStatePairs(start1, end1, start2, end2);
-        states = searchStates(states, -535, 0, {1.0, 2.0}, {0, 0});
-        SaveVectorUnsorted("2-2BurnStart", states);
-        SaveVectorUnsorted("2-2BurnEnd", tempStates);
+        states = LoadVector("2-2_1Turn");
     }
-
 
     states = stateFinder({}, 1, -1, true);
     while(true) {
