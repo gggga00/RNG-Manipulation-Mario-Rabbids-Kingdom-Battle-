@@ -1,0 +1,19 @@
+@nsobid-3B39E0C06B8841F1BAF0EA4D54286BFE
+@flag offset_shift 0x100
+
+@enabled
+006244b8 09008052 // Burn Area Size
+006260c4 08008052 // Burn Avoidance
+00625938 09008052 // Burn Tile
+00624aa4 09008052 // Burn Fallback
+006244a4 aa5a0190 // adrp x10, #0x2b54000   >> Write RNG to DAT_0321c5d0
+006244a8 4a1143f9 // ldr x10, [x10, #0x620]
+006244ac 492100b9 // str w9, [x10, #0x20]
+006244b0 1f2003d5 // nop
+006244b4 1f2003d5 // nop
+0032f660 0c000014
+002778f4 007801b0 // adrp x0, #0x2f01000    >> Display DAT_0321c5d0 on max react preview
+002778f8 001043f9 // ldr x0, [x0, #0x620]
+002778fc 001040f9 // ldr x0, [x0, #0x20]
+00277900 1f2003d5 // nop
+@stop
