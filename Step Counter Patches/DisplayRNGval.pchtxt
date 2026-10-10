@@ -1,0 +1,9 @@
+@nsobid-3B39E0C06B8841F1BAF0EA4D54286BFE
+@flag offset_shift 0x100
+
+@enabled
+00277c68 007801b0       // adrp x0, #0x2f01000
+00277c6c 001043f9       // ldr x0, [x0, #0x620]
+00277c70 000040f9       // ldr x0, [x0]
+00277c74 006443b9       // ldr w0, [x0, #0x364]
+@stop
