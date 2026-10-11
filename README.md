@@ -1,94 +1,168 @@
 # RNG-Manipulation-Mario-Rabbids-Kingdom-Battle-
-Work in progress  
+
+
+
+This project is still work in progress  
+
   
-This is a tool for RNG manipulation in Mario+Rabbids: Kingdom Battle.  
-  
+
+# Basics
+
 RNG in Mario+Rabbids is represented as a 32-bit integer. It uses a Linear Congruential Generator to update the value.  
+
 Specifically: x = x * 214013 + 2531011. The initial seed is generated using the system tick, which is determined by the cpu clock cycle.  
+
   
+
 The RNG state is progressed by 30 different functions, some of which progress it multiple (potentially variable amount of) times. We still don't know the purpose of all functions, but here are most of them:  
+
 - Enemy action related (Hoppers, Valkyries, Bwaario, Lava Queen)
+
 - Crit + Hit on Boomshot for extra AOE targets
+
 - Crit + Hit (Is called on some battle menu actions on movement, targetting and more, even if no crit/hit roll is needed)
+
 - Hidden Explosive Cover preset
+
 - Load tips
+
 - Damage roll (Is called on some battle menu actions on movement, targetting and more, even if no damage roll is needed)
+
 - (Explosive/) Cover damage effect?
+
 - Random explosive cover effect
+
 - Coin direction on spawn
-- Bounce tie breaker		
+
+- Bounce tie breaker
+
 - 4 related to Burn
+
 - Versus Coin
+
 - 4 related to Pyroclasts
+
 - Another related to Pyroclast??
+
 - Related to Pyroclasts/Honey Bombs/Ink Coconuts???
+
 - Boo teleport preset
+
 - Boo char teleport
+
 - Tornado
+
 - Rabbid Kong wave block hits
+
 - Load areas/End turn related?? (Is called in 3-2, 3-6, UC2)
+
   
+
 and 3 more whose purpose is to be determined. 
+
   
+
   
+
 Notably not included are:
+
 - Animations (e.g. Rabbid Peach move, Luigi sentry, ...)
+
 - Color of Garden Ziggies
+
 - Versus item box
+
 - Action cam
+
 - Coin spawn amount (on block hit)
 
-	
-# What the Code can and can not do so far  
 
-It can:  
-- Find out the rng state
-- Manipulate the rng state to whatever we want
-- Control behavior of anything RNG related (see list of 30 functions) PROVIDED we now at least one rng state/value that has our desired outcome
-- We can also control behavior of some stuff without that extra condition: Hit/Crit, Damage Rolls, Coin Direction, RK Wave block hits, Random Explosive Cover
+
+
+# What the Code does
+
+
+
+
+
+The code helps with 3 major actions:
+
+1. Figuring out your current RNG state
+2. Manipulating your RNG state to be a desired one
+3. Creating RNG routes (currently not supported for the executable)
+
+
+Quitting out of one with ‘x’ will put you in the next.
+
+Inputting ‘?’ at any point will show you the current command list.
+
+
 
   
-It can not currently:  
-- Control behavior of most other RNG related things without that extra condition
-  
-  
-  
-# How it works:  
-The programm will first try to figure out what RNG state your game is on.  
-It does so by going through a series of tests where you can input damage values you got on shooting an enemy. Each damage value will give the programm more information about the current RNG value.  
-To make sure this test goes as smoothly as possible avoid calling in an inconsistent amount.   
-The best practice is to pick a set sequence of actions you repeat slowly and as closesly as possible.   
-Do not move with Beep-O in battle, if it can be avoided. If you have to, go one tile at a time and not diagonal, otherwise it can call RNG in potentially unpredicatable ways.  
-After inputting the damage value you got, restarting the battle and repeating enough times the code will give you a RNG state.  
-You can then progress to the second part of the code, which will let you see predicted next damage values and how you can manipulate them to get a desired outcome.  
-  
-The way we can progress the RNG state in a controlled manner is by scrolling of the (non used) movement action onto an ability and back onto the movement action.   
-This will progress RNG by exactly: 2 * Number of entities in range of used character (for each weapon)  
-Your own team (but not the respective character) count as an entity as well in this context. 
-  
-  
-  
-# Step by step process for manipulating damage:  
+
+# 1. Figuring out your RNG state
+
+The “STATE FINDER” mode can be used to do exactly that.
+
+One way to figure out your state is by repeatedly shooting a target and tracking the damage values.
+
+Input the stats of the weapon into the program. 
+It will also ask for a ‘step count’. That refers to how many steps pass between each damage roll.
+
+To make sure this test goes as smoothly as possible avoid calling RNG an inconsistent amount. The best practice is to pick a set sequence of actions you repeat slowly and as closesly as possible. Do not move with Beep-O in battle, if it can be avoided. If you have to, go one tile at a time and not diagonal, otherwise it can call RNG in potentially unpredicatable ways.  
+
+Input the damage value, restart the battle, shoot again and repeat. (Make sure to exclude de-/buffs from the damage value. -1 refers to a miss)
+
+After enough inputs the code will give you your RNG state. (With Yoshi’s base primary you will usually get it after 5 repetitions)
+
+
+# 2. Manipulating RNG
+
+The “MANIP HELPER” will help with that.
+
+To figure out how many steps you need to reach your desired RNG state the program needs both your current RNG state and what qualifies as a desired state. Route files (which you can make as described in 3) will tell the program exactly what qualifies as a desired state. See the ‘Route Files’ folder for examples. The code can then tell you how many steps you need to reach the closest state that fulfills the requirements determined by the route files.
+
+Alternatively to route files you can also search for damage values directly.
+
+The steps needed may be substantial, depending on the type of RNG you are looking for. Progressing thousands of steps by just scrolling on and off the move action is not advised. 
+
+Instead use different things that call RNG a lot to get close, then redetermine your state. From there you can move hit/crit check and damage roll calls from moving onto the move action to progress it a clearly set amount of steps. Specifically it will be '2 x Number of entities in range of used character (for each weapon)' steps.
+
+In the program you can manually progress the state listed, to better keep track of your current state.
+
+
+# 3. Routing
+
+This is currently only supported within the code itself. It provides various functions for state to value and step count calculations.
+Make a uint32_t vector, which will contain the valid states for your route. Pass it through the various functions to limit the entries to fitting states, progress the entries by a various amount of steps, and more. Use the SaveVector() function to turn the vector into a route file. This will also sort it, which is necessary for the manip code.
+
+
+# Step by step example for manipulating rng
+
 1. Start the programm  
 Binaries are included that you can run in the terminal in case you don't have a cpp compiler. They can be found in the assets of the respective release, but I recommend working with the actual c++ code instead, as it is updated more frequently.
+
 2. Enter the Step Size
-This refers to how many RNG steps you do in one cycle. You can manually count or use the patch file, which will count for you and display the amount of steps taken (since start of the game) as the min damage preview on reaction shots.
+This refers to how many RNG steps you do in one cycle. You can manually count or use the various patch files to help count for you.
+
 3. Enter the hit chance for the target you are shooting
+
 4. Enter the stats of the weapon you are using
 
 5. In game shot your target and input the damage value into the programm
 Make sure these are the values before applying buffs/debuffs. A miss is represented with '-1'. 
+
 6. In game restart the battle, shot your target again, input the damage value again, ... until the programm gives you your RNG state
 
 7. Input 'x' to continue to the next part
 
-8. You can now overwrite the RNG state
-The programm will automatically input the RNG state that the game will use for the next shot (provided team and the steps taken until that shot are the same). You have the option to overwrite that value, if necessary.
+8. Input the current the RNG state.
+The program will automatically input the currently determined RNG state. You have the option to overwrite that, if necessary.
 
-9. You can now reenter some values if necessary. Additionally input MStep size.
-MStep size refers to '2 * Number of entities in range of used character (for each weapon)' as described above.
+9. You can now reenter some more values if necessary. If you can’t progress steps one at a time increase Msteps to a number of steps you can progress.
 
-10. The code will now give you the predicted damage values for your next shot, depending on how many times you scrolled of and back on to move.
+10. Select the route mode you want to go for. If you used ‘Search for goal states’ input the name of the route file you want to use for it (make sure it is located in the same folder). 
 
-11. Input how many times you did scroll off and back onto move, and repeat as often as desired.
+11a. If you used ‘Search for damage’, the code will give you the predicted damage values for your next shot, depending on how many times you scrolled of and back on to move.
 
+11b. If you used ‘Search for goal states’  the code will give you the next desired rng state you can reach.
