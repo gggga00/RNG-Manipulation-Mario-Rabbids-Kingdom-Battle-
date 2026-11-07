@@ -32,6 +32,8 @@ The RNG state is progressed by 30 different functions, some of which progress it
 
 - Random explosive cover effect
 
+- Whirlwind (unused Ability)
+
 - Coin direction on spawn
 
 - Bounce tie breaker
@@ -40,11 +42,7 @@ The RNG state is progressed by 30 different functions, some of which progress it
 
 - Versus Coin
 
-- 4 related to Pyroclasts
-
-- Another related to Pyroclast??
-
-- Related to Pyroclasts/Honey Bombs/Ink Coconuts???
+- 3 related to Pyroclasts
 
 - Boo teleport preset
 
@@ -55,10 +53,8 @@ The RNG state is progressed by 30 different functions, some of which progress it
 - Rabbid Kong wave block hits
 
 - Load areas/End turn related?? (Is called in 3-2, 3-6, UC2)
-
   
-
-and 3 more whose purpose is to be determined. 
+3 more potentially related to Pyroclasts (/Honey Bombs/Ink Coconuts) and 2 more whose purpose is to be determined. 
 
   
 
